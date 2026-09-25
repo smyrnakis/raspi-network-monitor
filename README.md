@@ -10,8 +10,8 @@ without WAN access and without Docker or cloud services.
 
 ## Project status
 
-Initial repository bootstrap. Architecture and monitoring semantics will be
-defined before functional implementation begins.
+Initial design phase. The V1 monitoring semantics are defined before functional
+implementation begins; architecture and configuration contracts follow.
 
 No deployment-specific addresses, credentials, private keys, email addresses,
 or dynamic-DNS URLs belong in this repository.
@@ -44,6 +44,10 @@ tests/                      Automated tests
 deploy/                     Native installation and service files
 docs/                       Architecture and operations documentation
 ```
+
+## Documentation
+
+- [Monitoring semantics](docs/monitoring-semantics.md)
 
 ## Development
 
