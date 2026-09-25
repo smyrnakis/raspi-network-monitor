@@ -47,6 +47,7 @@ docs/                       Architecture and operations documentation
 
 ## Documentation
 
+- [V1 architecture](docs/architecture.md)
 - [Monitoring semantics](docs/monitoring-semantics.md)
 
 ## Development
