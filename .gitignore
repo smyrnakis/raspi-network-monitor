@@ -27,6 +27,8 @@ handover.md
 .env.*
 !.env.example
 config.local.*
+runtime-settings.json
+settings-restart-request
 data/
 backups/
 

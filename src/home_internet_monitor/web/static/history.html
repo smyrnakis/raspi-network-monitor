@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>Detailed history · Network monitor</title>
+    <script src="/assets/theme.js?v=0.4.4"></script>
+    <link rel="stylesheet" href="/assets/styles.css?v=0.4.4">
+    <script src="/assets/history.js?v=0.4.4" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="shell topbar-inner">
+        <a class="brand" href="/" aria-label="Back to dashboard">
+          <span class="brand-mark" aria-hidden="true">N</span>
+          <span><strong>Network monitor</strong><small id="site-name">Detailed history</small></span>
+        </a>
+        <a class="text-link" href="/">Back to dashboard</a>
+      </div>
+    </header>
+
+    <main class="shell history-page">
+      <section class="card history-card" aria-labelledby="history-heading">
+        <div class="history-title-row">
+          <div>
+            <h1 id="history-heading">Detailed history</h1>
+            <p>Confirmed connectivity incidents and monitoring gaps.</p>
+          </div>
+          <a class="secondary-button" id="history-export" href="/api/v1/history.csv" download>
+            Download filtered CSV
+          </a>
+        </div>
+
+        <form class="history-filters" id="history-filters">
+          <label>
+            Event type
+            <select id="history-type">
+              <option value="">All events</option>
+              <option value="incident">Incidents</option>
+              <option value="gap">Monitoring gaps</option>
+            </select>
+          </label>
+          <label>
+            Status or reason
+            <select id="history-category">
+              <option value="">All statuses and reasons</option>
+            </select>
+          </label>
+          <label>
+            From
+            <input id="history-start" type="datetime-local">
+          </label>
+          <label>
+            Until
+            <input id="history-end" type="datetime-local">
+          </label>
+          <div class="history-filter-actions">
+            <button type="submit" class="primary-button">Apply filters</button>
+            <button type="button" class="secondary-button" id="history-reset">Reset</button>
+          </div>
+        </form>
+
+        <div class="error-banner" id="history-error" role="alert" hidden></div>
+        <div class="history-results-header">
+          <span id="history-count">Loading history...</span>
+          <span>20 events per page</span>
+        </div>
+        <div class="history-event-list" id="history-list">
+          <p class="empty-state">Loading history...</p>
+        </div>
+        <nav class="history-pagination" aria-label="History pages">
+          <button type="button" class="secondary-button" id="history-previous" disabled>
+            Previous
+          </button>
+          <span id="history-page-label">Page 1</span>
+          <button type="button" class="secondary-button" id="history-next" disabled>
+            Next
+          </button>
+        </nav>
+      </section>
+    </main>
+
+    <footer class="shell footer"><span id="app-version">Version ...</span></footer>
+  </body>
+</html>

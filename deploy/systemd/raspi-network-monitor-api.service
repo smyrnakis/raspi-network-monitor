@@ -1,0 +1,33 @@
+[Unit]
+Description=Raspberry Pi network monitor dashboard
+After=raspi-network-monitor.service
+ConditionPathExists=/etc/raspi-network-monitor/config.toml
+
+[Service]
+Type=simple
+User=raspi-monitor
+Group=raspi-monitor
+WorkingDirectory=/var/lib/raspi-network-monitor
+ExecStart=/opt/raspi-network-monitor/venv/bin/raspi-network-monitor-api --config /etc/raspi-network-monitor/config.toml
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=20s
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+ReadOnlyPaths=/var/lib/raspi-network-monitor
+ReadWritePaths=/var/lib/raspi-network-monitor/settings
+
+[Install]
+WantedBy=multi-user.target

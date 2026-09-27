@@ -1,0 +1,33 @@
+[Unit]
+Description=Raspberry Pi network monitor worker
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/etc/raspi-network-monitor/config.toml
+
+[Service]
+Type=simple
+User=raspi-monitor
+Group=raspi-monitor
+WorkingDirectory=/var/lib/raspi-network-monitor
+ExecStart=/opt/raspi-network-monitor/venv/bin/raspi-network-monitor --config /etc/raspi-network-monitor/config.toml
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=20s
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+ReadWritePaths=/var/lib/raspi-network-monitor
+
+[Install]
+WantedBy=multi-user.target

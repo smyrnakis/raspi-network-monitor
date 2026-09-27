@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>Network monitor</title>
+    <script src="/assets/theme.js?v=0.4.4"></script>
+    <link rel="stylesheet" href="/assets/styles.css?v=0.4.4">
+    <script src="/assets/app.js?v=0.4.4" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="shell topbar-inner">
+        <a class="brand" href="/" aria-label="Network monitor home">
+          <span class="brand-mark" aria-hidden="true">N</span>
+          <span>
+            <strong>Network monitor</strong>
+            <small id="site-name">Loading site…</small>
+          </span>
+        </a>
+        <div class="topbar-actions">
+          <div class="monitor-summary">
+            <div class="monitor-health" id="monitor-health" data-health="unknown">
+              <span class="health-dot" aria-hidden="true"></span>
+              <span id="health-label">Checking monitor</span>
+            </div>
+            <span class="refresh-note" id="refresh-note">Updating...</span>
+          </div>
+          <a class="settings-link" href="/settings" aria-label="Settings" title="Settings">
+            <span aria-hidden="true">&#9881;</span>
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <main class="shell page">
+      <div class="error-banner" id="error-banner" role="alert" hidden></div>
+
+      <section class="status-panel" id="status-panel" aria-labelledby="current-status-heading">
+        <div class="status-summary">
+          <div class="status-heading-row">
+            <span class="status-orb" id="status-orb" data-status="monitoring_unknown"></span>
+            <h1 id="current-status-heading">Checking…</h1>
+          </div>
+          <p class="last-check" id="last-check">No completed check yet</p>
+          <button type="button" class="test-button" id="run-test">
+            Run test now
+          </button>
+        </div>
+
+        <ul class="component-list" id="component-grid" aria-label="Probe components">
+          <li data-component="gateway" data-status="unknown">
+            <span><i class="component-dot" aria-hidden="true"></i>Gateway</span><strong>Unknown</strong>
+          </li>
+          <li data-component="external_ip" data-status="unknown">
+            <span><i class="component-dot" aria-hidden="true"></i>External IP</span><strong>Unknown</strong>
+          </li>
+          <li data-component="dns" data-status="unknown">
+            <span><i class="component-dot" aria-hidden="true"></i>DNS</span><strong>Unknown</strong>
+          </li>
+          <li data-component="https" data-status="unknown">
+            <span><i class="component-dot" aria-hidden="true"></i>HTTPS</span><strong>Unknown</strong>
+          </li>
+        </ul>
+      </section>
+
+      <section class="card availability-section" aria-labelledby="availability-heading">
+        <div class="section-header timeline-header">
+          <div>
+            <h2 id="availability-heading">Timeline</h2>
+          </div>
+          <div class="window-controls" role="group" aria-label="Timeline window">
+            <button type="button" class="window-button active" data-window="24h">24h</button>
+            <button type="button" class="window-button" data-window="7d">7d</button>
+            <button type="button" class="window-button" data-window="30d">30d</button>
+            <button type="button" class="window-button" data-window="custom">Custom</button>
+          </div>
+        </div>
+
+        <form class="custom-window" id="custom-window" hidden>
+          <label>
+            Start (your local time)
+            <input type="datetime-local" id="custom-start" required>
+          </label>
+          <label>
+            End (your local time)
+            <input type="datetime-local" id="custom-end" required>
+          </label>
+          <button type="submit" class="primary-button">Apply window</button>
+          <p class="field-error" id="custom-error" role="alert"></p>
+        </form>
+
+        <div class="metric-grid">
+          <article class="metric">
+            <span>Fully online</span>
+            <strong id="availability-value">...</strong>
+            <small>of classified time</small>
+          </article>
+          <article class="metric">
+            <span>Monitoring coverage</span>
+            <strong id="coverage-value">...</strong>
+            <small>of selected window</small>
+          </article>
+        </div>
+
+        <div class="timeline-wrap">
+          <div class="timeline-track" id="timeline-track" role="group" aria-label="Connection status timeline"></div>
+          <div class="timeline-tooltip" id="timeline-tooltip" role="status" hidden></div>
+          <div class="timeline-axis">
+            <time id="timeline-start">...</time>
+            <time id="timeline-end">...</time>
+          </div>
+        </div>
+
+        <div class="legend" aria-label="Timeline legend">
+          <span><i data-status="online"></i>Online</span>
+          <span><i data-status="internet_down"></i>Internet down</span>
+          <span><i data-status="gateway_unreachable"></i>Gateway unreachable</span>
+          <span><i data-status="dns_failure"></i>DNS failure</span>
+          <span><i data-status="partial_connectivity"></i>Partial</span>
+          <span><i data-status="monitoring_unknown"></i>Unknown</span>
+        </div>
+      </section>
+
+      <section class="card latency-section" aria-labelledby="latency-heading">
+        <div class="section-header latency-header">
+          <div>
+            <h2 id="latency-heading">Ping latency</h2>
+            <p class="section-note">Average response time. Missing checks appear as gaps.</p>
+          </div>
+          <div class="window-controls" role="group" aria-label="Latency window">
+            <button type="button" class="latency-window active" data-latency-window="1h">1h</button>
+            <button type="button" class="latency-window" data-latency-window="24h">24h</button>
+            <button type="button" class="latency-window" data-latency-window="7d">7d</button>
+          </div>
+        </div>
+        <div class="latency-series-controls" id="latency-series-controls"></div>
+        <div class="latency-chart-wrap">
+          <svg id="latency-chart" class="latency-chart" viewBox="0 0 900 260"
+               role="img" aria-label="Ping latency chart"></svg>
+          <div class="latency-tooltip" id="latency-tooltip" role="status" hidden></div>
+          <p class="empty-state" id="latency-empty" hidden>No latency data in this window.</p>
+        </div>
+      </section>
+
+      <div class="history-grid">
+        <section class="card" aria-labelledby="incidents-heading">
+          <div class="section-header">
+            <div>
+              <h2 id="incidents-heading">Recent incidents</h2>
+            </div>
+            <a class="text-link history-link" href="/history">Detailed history</a>
+          </div>
+          <div class="event-list" id="incident-list">
+            <p class="empty-state">Loading incidents…</p>
+          </div>
+        </section>
+
+        <section class="card" aria-labelledby="gaps-heading">
+          <div class="section-header">
+            <div>
+              <h2 id="gaps-heading">Monitoring gaps</h2>
+            </div>
+            <a class="text-link history-link" href="/history">Detailed history</a>
+          </div>
+          <div class="event-list" id="gap-list">
+            <p class="empty-state">Loading gaps…</p>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="shell footer">
+      <span id="app-version">Version ...</span>
+    </footer>
+  </body>
+</html>

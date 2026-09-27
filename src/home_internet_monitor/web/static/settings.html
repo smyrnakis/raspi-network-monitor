@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>Settings · Network monitor</title>
+    <script src="/assets/theme.js?v=0.4.4"></script>
+    <link rel="stylesheet" href="/assets/styles.css?v=0.4.4">
+    <script src="/assets/settings.js?v=0.4.4" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="shell topbar-inner">
+        <a class="brand" href="/" aria-label="Back to dashboard">
+          <span class="brand-mark" aria-hidden="true">N</span>
+          <span><strong>Network monitor</strong><small>Settings</small></span>
+        </a>
+        <a class="text-link" href="/">Back to dashboard</a>
+      </div>
+    </header>
+
+    <main class="shell settings-page">
+      <section class="card settings-card" aria-labelledby="settings-heading">
+        <h1 id="settings-heading">Settings</h1>
+        <p class="settings-intro">
+          Monitoring changes are validated before saving. The monitor restarts
+          automatically after its current check, creating a short recorded gap.
+        </p>
+
+        <form id="monitor-settings">
+          <div class="settings-section">
+            <div>
+              <h2>Check schedule</h2>
+              <p>Control check frequency and confirmation thresholds.</p>
+            </div>
+            <div class="settings-fields monitor-fields">
+              <label>
+                Check every (seconds)
+                <input id="interval-seconds" type="number" min="2" step="1" required>
+              </label>
+              <label>
+                Round timeout (seconds)
+                <input id="round-timeout-seconds" type="number" min="1" step="1" required>
+              </label>
+              <label>
+                Failed checks to confirm
+                <input id="failure-threshold" type="number" min="1" step="1" required>
+              </label>
+              <label>
+                Healthy checks to recover
+                <input id="recovery-threshold" type="number" min="1" step="1" required>
+              </label>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div>
+              <h2>Probe targets</h2>
+              <p>Edit the IP addresses, hostnames, URLs, and individual timeouts.</p>
+            </div>
+            <div class="probe-settings" id="probe-settings">
+              <p class="empty-state">Loading probe settings...</p>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div>
+              <h2>Data retention</h2>
+              <p>
+                Incidents and compact availability history are separate from
+                detailed raw probe results.
+              </p>
+            </div>
+            <div class="settings-fields retention-fields">
+              <label>
+                Keep raw probe details (days)
+                <input id="raw-samples-days" type="number" min="1" step="1" required>
+                <small>Reducing this deletes older probe-level details at the next cleanup.</small>
+              </label>
+              <label>
+                Keep hourly latency summaries (days)
+                <input id="latency-aggregates-days" type="number" min="2" step="1" required>
+              </label>
+              <label class="checkbox-field">
+                <input id="keep-incidents-forever" type="checkbox">
+                Keep incidents indefinitely
+              </label>
+              <label id="incident-days-field">
+                Keep unannotated incidents (days)
+                <input id="incidents-days" type="number" min="1" step="1">
+                <small>Open and annotated incidents are never removed automatically.</small>
+              </label>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div>
+              <h2>Dashboard</h2>
+              <p>Choose which events appear in the compact dashboard preview.</p>
+            </div>
+            <label class="dashboard-checkbox">
+              <input id="hide-short-incidents" type="checkbox">
+              <span>
+                <strong>Hide incidents shorter than one minute</strong>
+                <small>Detailed history and CSV export always keep these incidents.</small>
+              </span>
+            </label>
+          </div>
+
+          <div class="settings-actions">
+            <button type="submit" class="primary-button" id="save-settings" disabled>
+              Save monitoring settings
+            </button>
+            <p class="settings-message" id="settings-message" role="status"></p>
+          </div>
+        </form>
+
+        <div class="settings-section">
+          <div>
+            <h2>Appearance</h2>
+            <p>Choose how this browser displays the dashboard.</p>
+          </div>
+          <div class="theme-selector" role="radiogroup" aria-label="Color theme">
+            <button type="button" role="radio" data-theme-choice="system" aria-checked="false">
+              Follow device theme
+            </button>
+            <button type="button" role="radio" data-theme-choice="light" aria-checked="false">
+              Light
+            </button>
+            <button type="button" role="radio" data-theme-choice="dark" aria-checked="false">
+              Dark
+            </button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

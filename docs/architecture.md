@@ -1,363 +1,151 @@
-# V1 architecture
+# Architecture and scope
 
-Status: accepted for implementation, subject to Raspberry Pi host inventory and
-hardware validation.
+This is a deliberately small, local-first application for Raspberry Pi 3 and
+Raspberry Pi 4. Every installation is independent and keeps its own settings,
+history, and dashboard.
 
-This document defines the V1 component boundaries and operational model. It
-applies equally to Raspberry Pi 3 and Raspberry Pi 4 installations. Each
-installation is independent and has its own site identity, configuration, and
-database.
-
-## 1. Design goals
-
-The architecture prioritizes:
-
-1. Continued monitoring when the web application is unavailable.
-2. Local operation without WAN, cloud services, Docker, or a JavaScript build
-   runtime on the Raspberry Pi.
-3. Deterministic monitoring behavior shared by storage, API, export, and UI.
-4. Low memory, CPU, and write amplification on Raspberry Pi 3 and microSD.
-5. Explicit routing so native-WAN probes do not accidentally use a VPN.
-6. Recoverable upgrades, inspectable local data, and straightforward backup.
-7. Extension seams that do not make future integrations V1 dependencies.
-
-## 2. Runtime topology
-
-V1 uses two long-running Python processes and one short-lived migration command.
+## V1 components
 
 ```mermaid
 flowchart LR
-    Browser[LAN browser or local kiosk]
-    Proxy[Caddy, optional LAN TLS]
-    Web[Web process\nFastAPI, API, static UI]
-    DB[(Local SQLite database)]
-    Monitor[Monitor process\nscheduler, probes, state machine]
-    Network[Gateway, DNS, IP, HTTPS targets]
-    Migrate[Migration command]
+    Client[LAN or VPN client]
+    Web[FastAPI and static UI]
+    DB[(SQLite)]
+    Monitor[Monitor worker]
+    Targets[Gateway, DNS, IP, HTTPS]
 
-    Browser --> Proxy
-    Proxy -->|loopback HTTP| Web
-    Browser -.->|local loopback HTTP| Web
-    Web -->|reads, settings, notes, commands| DB
-    Monitor -->|samples, intervals, incidents, heartbeat| DB
-    Monitor --> Network
-    Migrate -->|exclusive schema upgrade| DB
+    Client --> Web
+    Web --> DB
+    Monitor --> DB
+    Monitor --> Targets
 ```
 
-### Monitor process
+V1 uses two Python processes:
 
-The monitor process owns:
+- The **monitor worker** schedules probes, validates routes, classifies rounds,
+  maintains incidents and gaps, and performs retention and aggregation.
+- The **web process** serves the API and local frontend, reads history, exports
+  CSV, validates runtime settings, and runs diagnostic manual probes.
 
-- Probe scheduling and bounded concurrency.
-- Route-policy validation.
-- Probe execution and normalization.
-- Round classification and hysteresis.
-- Status intervals, incidents, heartbeats, and monitoring gaps.
-- Aggregation, retention, and WAL checkpoint scheduling.
-- Durable command consumption for actions such as `Test now`.
+The split ensures that restarting or breaking the dashboard does not stop
+monitoring. SQLite in WAL mode is the only coordination mechanism. There is no
+message broker, network database, Docker requirement, or cloud dependency.
 
-It does not serve HTTP. A web-process failure therefore cannot stop scheduled
-monitoring.
+## Data and configuration
 
-### Web process
+The database is stored on a local persistent filesystem. The monitor writes one
+probe round per short transaction. The web process uses separate short-lived
+transactions and never modifies scheduled monitoring state.
 
-The web process owns:
+The root-owned TOML file contains installation identity, database location,
+bind settings, routing policy, and defaults. The settings UI stores only
+validated timing, probe, and retention overrides in a separate state-directory JSON file.
+The web process can write that settings directory but its systemd sandbox keeps
+the monitoring database read-only. A saved change requests a worker restart;
+systemd then starts the worker with the validated settings.
 
-- Versioned JSON API endpoints.
-- The locally bundled HTML, CSS, and JavaScript application.
-- Authentication, sessions, CSRF protection, and rate limiting.
-- Read queries for status, timeline, summaries, health, and incidents.
-- Short writes for incident notes, validated settings, audit records, and
-  durable monitor commands.
-- Streaming CSV export from database queries independent of UI pagination.
+The worker applies database migrations before monitoring starts. Clock trust is
+checked against both the OS synchronization signal and monotonic elapsed time;
+untrusted time becomes a monitoring gap rather than an outage claim.
 
-It does not run scheduled probes or mutate monitoring state directly.
+Raw probe rounds default to 7 days. Before expiry, gateway and external-IP ping
+samples are compacted into hourly count, average, minimum, and maximum summaries.
+These summaries default to 548 days, while incidents default to indefinite
+retention. Status intervals and monitoring gaps remain compact long-range data.
 
-### Migration command
+## Access
 
-A short-lived command applies ordered, transactional schema migrations before
-either long-running process starts. The production systemd units depend on a
-successful migration unit. An application must refuse to start against a schema
-newer than it understands.
+The dashboard is not exposed to the public internet. It is accessed from the
+local LAN or after connecting to that location's existing VPN.
 
-## 3. Inter-process contract
+Dashboard, history, health, and CSV reads do not require authentication.
+The manual probe is bounded, does not persist results, and requires a custom
+same-origin request header. V1 has no application login, shared accounts,
+single sign-on, administrative settings UI, or central multi-site dashboard.
 
-SQLite is the only V1 inter-process data and command boundary. There is no
-message broker, network database, or required daemon beyond the two application
-processes.
+## Deployment
 
-The web process requests monitor work by inserting a command with:
+Production uses a dedicated unprivileged account, one Python virtual
+environment, one database, and two systemd units:
 
-- A unique command ID.
-- Command type and validated bounded payload.
-- Creation and expiry timestamps.
-- Requesting actor and audit metadata.
-- State: `pending`, `claimed`, `succeeded`, `failed`, or `expired`.
-- Attempt count and bounded result metadata.
+- `raspi-network-monitor.service`
+- `raspi-network-monitor-api.service`
 
-The monitor atomically claims pending commands, executes each command at most
-once concurrently, and stores its result. Re-reading or retrying a command must
-be idempotent. `Test now` commands are rate-limited and never alter the regular
-scheduler's incident-confirmation sequence unless explicitly defined by a
-future version.
+The application may bind to local IPv4 interfaces for direct LAN and VPN
+access. Its port must not be forwarded from the router to the public internet.
+Installation must not alter firewall, VPN, routing, storage mounts, or an
+existing web server without an explicit operator action.
 
-Mutable settings carry a monotonically increasing revision. The monitor checks
-for a newer revision between rounds, validates it again, and applies it at a
-safe boundary. Settings that cannot be applied live are stored as pending and
-reported as requiring restart.
+All frontend assets are local. The Pi needs no Node.js runtime, CDN, Docker, or
+internet access to display stored information.
 
-## 4. SQLite ownership and reliability
+## Raspberry Pi support
 
-The database resides on a local persistent filesystem. A live database on NFS,
-SMB, or another shared filesystem is unsupported.
+The design targets both Pi 3 and Pi 4, with Pi 3 as the intended resource floor.
 
-Every process uses its own SQLite connection and applies:
+Current rollout is limited to Raspberry Pi 4 installations. The Pi 3 remains
+a design compatibility target, but it has not been tested and no near-term Pi 3
+installation is planned. Pi 3 support must not be claimed as validated until a
+real-device test is completed.
 
-- WAL journal mode.
-- Foreign-key enforcement.
-- A bounded busy timeout.
-- Parameterized statements.
-- Short read and write transactions.
-- Explicit indexes driven by API and retention queries.
-
-The monitor writes all results for one completed round in one transaction. The
-web process never holds a transaction open while waiting for a client or while
-generating a response. Large exports page through a stable query and stream
-rows without blocking the writer for the lifetime of the download.
-
-The initial durability policy is WAL with `synchronous=NORMAL`, balancing
-integrity and microSD writes. A committed transaction may be lost during abrupt
-power removal, but SQLite consistency must be preserved. This policy and
-checkpoint cadence must be verified on both storage profiles before release.
-
-Only the monitor schedules passive WAL checkpoints. A shutdown command may
-request a bounded final checkpoint, but shutdown must not hang indefinitely.
-Retention deletes data in bounded batches and never silently deletes incident
-notes.
-
-Database migrations must have upgrade and rollback notes. Before a migration
-that rebuilds or destructively transforms a table, the operator is instructed
-to create a SQLite online backup. Backup and restore commands operate on a
-consistent snapshot, not a copied live database file.
-
-## 5. Logical data ownership
-
-The initial schema is divided by responsibility:
-
-| Data | Primary writer | Readers |
-|---|---|---|
-| Site identity | Migration/admin settings | Monitor and web |
-| Probe targets | Admin settings | Monitor and web |
-| Probe samples | Monitor | Web |
-| Completed rounds | Monitor | Web |
-| Status intervals | Monitor | Web |
-| Incidents and transitions | Monitor | Web |
-| Incident notes | Web | Web and monitor diagnostics |
-| Heartbeats and gaps | Monitor | Web |
-| Hourly and daily aggregates | Monitor | Web |
-| Mutable settings and revisions | Web | Monitor and web |
-| Durable commands | Web creates, monitor completes | Web and monitor |
-| Audit records | Web and monitor | Admin API |
-| Schema migrations | Migration command | Monitor and web |
-
-Monitoring entities use stable IDs and uniqueness constraints so replay after a
-restart cannot create duplicate rounds, intervals, or incidents.
-
-## 6. Configuration boundaries
-
-Configuration has three sources with explicit precedence:
-
-1. **Bootstrap TOML:** local file containing the site ID, database path, bind
-   addresses, and settings required before the database can be opened.
-2. **Environment/credential file:** secrets such as session-signing material and
-   initial authentication bootstrap values. It is readable only by the service
-   account and is never returned by the API.
-3. **Database settings:** validated mutable monitoring, retention, and UI
-   settings with revision and audit metadata.
-
-Command-line options may select a bootstrap file or invoke an administrative
-command, but they do not become a fourth persistent configuration store.
-
-Secrets, private keys, password material, deployment addresses, and dynamic-DNS
-names must not enter Git, logs, diagnostics, database exports, or support
-bundles. Passwords are never stored in plaintext. V1 can use the Python standard
-library's `scrypt` implementation with a per-password salt and versioned cost
-parameters, avoiding a mandatory native password-hashing dependency.
-
-The forthcoming configuration contract defines every key, default, range,
-restart requirement, and secret-handling rule.
-
-## 7. Package boundaries
-
-The intended package structure is:
-
-```text
-src/home_internet_monitor/
-  api/             HTTP routes, schemas, auth, CSV export
-  monitor/         scheduler, probe adapters, route policy
-  domain/          classifications, state machine, shared value objects
-  storage/         connections, repositories, migrations, retention
-  static/          local HTML, CSS, JavaScript, and vendored browser assets
-  config.py        bootstrap and settings validation
-  cli.py           migration, health, and maintenance commands
-```
-
-Dependency direction is inward:
-
-- `domain` imports no API, storage, operating-system, or network adapters.
-- `monitor` depends on domain interfaces and injected adapters.
-- `storage` implements repositories defined around domain operations.
-- `api` calls application services and repositories, not probe implementations.
-- Tests can replace clocks, probe adapters, boot identity, routing, and storage.
-
-This makes the classification and incident state machine deterministic under
-synthetic inputs before any live networking is introduced.
-
-## 8. Probe and scheduler boundaries
-
-Each probe implements a common asynchronous interface and returns a normalized
-result. Adapters own operating-system and protocol details; the domain layer
-never parses command output.
-
-The scheduler:
-
-- Uses monotonic deadlines within a process.
-- Starts one bounded round at a time.
-- Applies per-probe and whole-round timeouts.
-- Cancels and accounts for unfinished work at the round deadline.
-- Records overruns rather than stacking rounds.
-- Persists a heartbeat and round result in a short transaction.
-- Applies new settings only between rounds.
-
-Linux route inspection is isolated behind an adapter. Native-WAN probes must
-pass route-policy validation before their failures become connectivity
-evidence. ICMP implementation must not require the long-running service to run
-as root; a controlled system utility or least-privilege capability is preferred
-over broad process privileges.
-
-## 9. API and frontend boundary
-
-The FastAPI application binds to loopback by default. Caddy may expose it to
-the LAN over HTTPS. Proxy headers are trusted only from explicitly configured
-loopback proxy addresses.
-
-All administrator writes require authentication. The default remote-access
-policy also requires authentication for dashboard reads. A directly attached
-kiosk may use an explicitly configured, scoped read-only session; it receives
-no implicit administrator trust merely because it uses loopback.
-
-Authentication uses:
-
-- Server-side session records with expiry and revocation.
-- A random opaque cookie marked `HttpOnly`, `Secure` when HTTPS is used, and an
-  appropriate `SameSite` policy.
-- CSRF protection on state-changing browser requests.
-- Rate limits for login and manual probe commands.
-- Versioned password hashes and a documented credential-reset command.
-
-The frontend is mobile-first and served entirely from local files. Runtime CDN
-requests are prohibited. V1 needs no Node.js process on the Raspberry Pi; any
-vendored browser asset is pinned, licensed, and committed intentionally.
-
-## 10. systemd and filesystem layout
-
-Production deployment uses a dedicated unprivileged service account and these
-logical paths, all configurable where needed:
-
-```text
-/etc/raspi-network-monitor/       bootstrap configuration and credentials
-/var/lib/raspi-network-monitor/   database, backups, and durable application data
-/opt/raspi-network-monitor/       application virtual environment and release
-```
-
-Logs go to journald by default. The installer must not replace firewall, VPN,
-routing, storage mounts, or existing web-server configuration automatically.
-
-Planned units:
-
-- `raspi-network-monitor-migrate.service`: one-shot schema migration.
-- `raspi-network-monitor.service`: monitoring worker.
-- `raspi-network-monitor-web.service`: API and local frontend.
-
-Both long-running units start after local filesystems and basic networking, but
-monitoring does not require `network-online.target` to succeed. Starting before
-WAN availability is useful evidence, not a fatal condition. Units use bounded
-restart delays and do not restart in tight loops.
-
-## 11. Raspberry Pi 3 and Pi 4 compatibility
-
-Raspberry Pi 3 and Raspberry Pi 4 are equal supported targets. The Pi 3 is the
-resource floor, not the only target.
-
-Compatibility rules:
+The first Pi 4 deployment runs the monitor worker as a hardened systemd service.
+The web service provides both the graphical dashboard and its read-only API.
+It remains disabled until explicitly enabled for an installation.
 
 - Support the actual 32-bit or 64-bit Raspberry Pi OS architectures found in
   the host inventory.
-- Keep the current Python `>=3.9` baseline provisional until all hosts are
-  inventoried; do not replace a host Python installation automatically.
-- Prefer pure-Python dependencies or maintained ARM wheels. Any compiled
-  dependency needs an installation test on every supported architecture.
-- Use one web worker unless measurement proves another configuration safe.
-- Avoid heavy dataframe, scientific-computing, frontend-build, and background
-  broker dependencies.
-- Batch each probe round into one database transaction.
-- Use shorter raw-sample retention on microSD than on HDD or SSD.
-- Keep all static assets local and modest in size.
+- Keep Python `>=3.9` provisional until the hosts are inventoried.
+- Prefer pure-Python dependencies or maintained ARM wheels.
+- Use one web worker and bounded probe concurrency.
+- Batch database writes and use shorter raw retention on microSD.
+- Test on a real Pi 3 and Pi 4 before release.
 
-Provisional steady-state targets, to be measured rather than assumed:
+Initial targets are at most 150 MiB combined resident memory for the monitor and
+web processes, below 10 percent average idle use of one Pi 3 core, and no
+overlapping probe rounds.
 
-- Combined monitor and web resident memory at or below 150 MiB.
-- Average idle CPU below 10 percent of one Pi 3 core, excluding active page
-  rendering in an optional kiosk browser.
-- No overlapping probe rounds at the default cadence.
-- No unbounded in-memory queues, result sets, logs, or diagnostic fields.
+## V1 limitations
 
-Dependency versions are pinned only after OS, Python, architecture, and storage
-inventories are available. CI on another architecture does not replace tests on
-a real Pi 3 and Pi 4.
+V1 deliberately does not include:
 
-## 12. Failure behavior
+- Email notifications or reports.
+- Device-level traffic attribution.
+- VPN health probes.
+- Speed tests.
+- Multi-site aggregation or synchronization.
+- Shared authentication.
+- Grafana, MQTT, or Home Assistant integration.
+- Device scanning or traffic capture.
 
-- **Web process unavailable:** monitoring and persistence continue.
-- **Monitor unavailable:** the web process serves stored history and clearly
-  reports stale/unknown current status.
-- **Database busy:** operations retry within a bounded timeout; no component
-  waits indefinitely.
-- **Database unavailable or full:** monitoring health becomes unknown, errors
-  are logged without secrets, and memory buffering remains strictly bounded.
-- **Abrupt power loss:** SQLite recovery runs on startup; a monitoring gap is
-  recorded and open incidents follow the gap rules.
-- **Clock not synchronized:** samples may be diagnostic, but trusted intervals
-  wait for valid time.
-- **Route becomes ambiguous:** affected probe results become unknown rather than
-  outage evidence.
-- **Invalid settings:** the previous valid revision remains active and the
-  rejected revision is reported with bounded validation errors.
+## V2 priorities
 
-## 13. Future extension seams
+The initial V2 order is:
 
-V1 provides interfaces, not inactive feature switches, for:
+1. Email notifications with a durable outbox, retry, and recovery delivery.
+2. Device-level traffic attribution.
+3. VPN health probes kept separate from native-WAN availability.
+4. Optional, low-frequency, data-budgeted speed tests.
 
-- Transactional event outbox and notification senders.
-- Read-only metrics/history consumers.
-- MQTT publication.
-- A dedicated VPN probe category.
-- Multi-site replication keyed by stable site ID.
-- Additional probe adapters.
+Traffic attribution needs a feasibility study because the routers expose no
+usable API. A Pi connected as an ordinary LAN endpoint cannot observe other
+devices' traffic. It would require a deliberate visibility method such as a
+gateway/bridge role, a managed-switch mirror port, endpoint agents, or separate
+monitoring hardware. No option should put household internet reliability at
+risk, and full packet payload retention is not a goal.
 
-None of these services may be required for monitoring, local history, or the
-dashboard to function.
+Central aggregation, shared login, Grafana, MQTT, and Home Assistant remain
+optional after V2.
 
-## 14. Decisions deferred until inventory
-
-The following choices remain deliberately open:
-
-- Final Python and dependency versions.
-- Per-site database paths and retention profiles.
-- Interface names and native-WAN route rules.
-- LAN hostname and Caddy certificate trust method.
-- Optional kiosk configuration.
-- Measured resource budgets and checkpoint cadence.
-
-These decisions do not block implementation of the domain state machine or
-SQLite repository interfaces, but they block a production installation.
+The dashboard setting can hide completed incidents shorter than one minute from
+the Recent incidents list. It only changes presentation; short incidents remain
+stored and included in complete history and CSV export.
+Detailed combined incident and monitoring-gap history includes filtering,
+pagination, expandable diagnostics, and filtered CSV export. Incident notes
+remain optional follow-up work.
+Consecutive incident records linked by a `category_transition` are one
+user-facing incident with multiple classification phases. The individual phase
+records remain intact for diagnostics, and no healthy interval is invented
+between them.
+Future reliability metrics may include MTBF based on confirmed incidents. The
+UI must state the selected calculation window and exclude monitoring gaps and
+other unknown time rather than presenting them as healthy operation.

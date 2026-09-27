@@ -4,14 +4,26 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "raspi-network-monitor"
-version = "0.0.0"
+version = "0.4.4"
 description = "Local-first internet reliability monitoring for Raspberry Pi 3 and 4"
 readme = "README.md"
 requires-python = ">=3.9"
-dependencies = []
+dependencies = [
+    "fastapi>=0.128,<0.129",
+    "tomli>=2,<3; python_version < '3.11'",
+    "uvicorn>=0.39,<0.40",
+]
+
+[project.scripts]
+raspi-network-monitor = "home_internet_monitor.monitor.runtime:main"
+raspi-network-monitor-api = "home_internet_monitor.api.cli:main"
+raspi-network-monitor-ops = "home_internet_monitor.monitor.ops:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+home_internet_monitor = ["web/static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

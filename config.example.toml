@@ -1,0 +1,66 @@
+[site]
+id = "home"
+display_name = "Home"
+timezone = "Europe/Bucharest"
+
+[storage]
+# Use an absolute path on the Raspberry Pi.
+database_path = "/var/lib/raspi-network-monitor/monitor.db"
+
+[web]
+# Listen on local IPv4 interfaces. Do not forward this port from the router.
+host = "0.0.0.0"
+port = 8080
+
+[monitor]
+interval_seconds = 10
+round_timeout_seconds = 8
+max_concurrency = 4
+failure_threshold = 3
+recovery_threshold = 2
+
+[route]
+# Leave empty unless probes must use a specific physical interface, such as eth0.
+# required_interface = "eth0"
+forbidden_interface_prefixes = ["tun", "tap", "wg"]
+
+[retention]
+# Detailed probe rounds are most useful for recent diagnosis.
+raw_samples_days = 7
+# Omit incidents_days to keep incidents indefinitely.
+latency_aggregates_days = 548
+
+[dashboard]
+# Presentation-only: short incidents remain in Detailed history and CSV export.
+hide_short_incidents = true
+
+[[probes]]
+id = "gateway"
+kind = "gateway"
+endpoint = "auto"
+timeout_seconds = 2
+
+[[probes]]
+id = "external_cloudflare"
+kind = "external_ip"
+endpoint = "1.1.1.1"
+timeout_seconds = 3
+
+[[probes]]
+id = "external_google"
+kind = "external_ip"
+endpoint = "8.8.8.8"
+timeout_seconds = 3
+
+[[probes]]
+id = "dns_example"
+kind = "dns"
+endpoint = "example.com"
+timeout_seconds = 3
+
+[[probes]]
+id = "https_connectivity"
+kind = "https"
+endpoint = "https://www.gstatic.com/generate_204"
+expected_status = 204
+timeout_seconds = 4
