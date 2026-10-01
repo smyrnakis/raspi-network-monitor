@@ -258,6 +258,7 @@ classified = online + internet_down + gateway_unreachable
 fully_online_availability = online / classified
 coverage = classified / reporting_window
 unknown = reporting_window - classified
+mtbf = online / confirmed_incident_starts
 ```
 
 Policy decisions for V1:
@@ -269,6 +270,12 @@ Policy decisions for V1:
 - `GATEWAY_UNREACHABLE` is counted and displayed separately as a local-path
   outage observation.
 - Unknown and gap time contributes to neither reachable nor unreachable time.
+- MTBF uses only classified online time and counts merged incident episodes by
+  their first confirmed start inside the selected window. Classification
+  transitions within one continuous incident count as one failure.
+- If the window contains no confirmed incident start, MTBF is presented as
+  "No failures" rather than infinity. If there is no classified time, it is
+  presented as "No data".
 - The UI reports status-duration breakdowns alongside the headline percentage.
 - If `classified` is zero, availability is `null` / "No observed data", never
   zero or 100 percent.

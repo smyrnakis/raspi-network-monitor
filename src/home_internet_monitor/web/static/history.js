@@ -183,7 +183,9 @@ function historyEvent(item, focused) {
     appendDetail(body, "End reason", item.end_reason ? label(item.end_reason) : "Not available");
   }
   appendDetail(body, "Event ID", item.event_id, true);
-  details.append(summary, body);
+  const content = document.createElement("div");
+  content.className = "history-event-content";
+  content.append(body);
   if (item.event_type === "incident") {
     const explanation = document.createElement("p");
     explanation.className = "incident-explanation";
@@ -191,9 +193,10 @@ function historyEvent(item, focused) {
       ? `One continuous incident with ${item.phase_count} classification phases. `
       : "";
     explanation.textContent = continuity + incidentExplanation(item.failed_tests);
-    details.append(explanation);
-    if (item.phases?.length > 1) details.append(incidentPhases(item.phases));
+    content.append(explanation);
+    if (item.phases?.length > 1) content.append(incidentPhases(item.phases));
   }
+  details.append(summary, content);
   return details;
 }
 

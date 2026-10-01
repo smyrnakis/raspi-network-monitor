@@ -103,7 +103,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual("home", payload["site"]["site_id"])
         self.assertEqual("monitoring_unknown", payload["stable_status"])
         self.assertTrue(payload["hostname"])
-        self.assertEqual("0.4.4", payload["version"])
+        self.assertEqual("0.4.7", payload["version"])
         self.assertTrue(payload["dashboard"]["hide_short_incidents"])
 
     def test_invalid_availability_window_returns_400(self):
@@ -143,6 +143,7 @@ class AppTests(unittest.TestCase):
         self.assertIn(b"Custom", body)
         self.assertIn(b"timeline-tooltip", body)
         self.assertIn(b"Ping latency", body)
+        self.assertIn(b'id="mtbf-value"', body)
         self.assertIn(b'data-latency-window="1h"', body)
         self.assertIn(b"latency-tooltip", body)
         self.assertIn(
@@ -163,8 +164,11 @@ class AppTests(unittest.TestCase):
         self.assertIn(b"setPointerCapture", body)
         self.assertIn(b"latencyTooltipLabel", body)
         self.assertIn(b"formatLatencyTooltipTime", body)
+        self.assertIn(b"formatMetricDuration", body)
+        self.assertIn(b"latency-incident", body)
         self.assertIn(b'/api/v1/incidents?limit=5', body)
         self.assertIn(b'/api/v1/gaps?limit=5', body)
+        self.assertEqual(2, body.count(b"minimum_duration_seconds=${minimumDuration}"))
         self.assertIn(b"focus_type=incident", body)
 
         status, headers, body = asyncio.run(request(self.app, "/settings"))
@@ -176,7 +180,7 @@ class AppTests(unittest.TestCase):
         self.assertIn(b"Check schedule", body)
         self.assertIn(b"Probe targets", body)
         self.assertIn(b"Data retention", body)
-        self.assertIn(b"Hide incidents shorter than one minute", body)
+        self.assertIn(b"Hide events shorter than one minute", body)
 
         status, headers, body = asyncio.run(request(self.app, "/assets/theme.js"))
         self.assertEqual(200, status)
@@ -187,6 +191,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual(200, status)
         self.assertIn(b"text/css", headers[b"content-type"])
         self.assertIn(b"touch-action: pan-y", body)
+        self.assertIn(b".history-event-content", body)
 
         status, headers, body = asyncio.run(request(self.app, "/history"))
         self.assertEqual(200, status)
@@ -319,6 +324,7 @@ class AppTests(unittest.TestCase):
         payload = json.loads(body)
         self.assertEqual(300, payload["bucket_seconds"])
         self.assertEqual([], payload["series"])
+        self.assertEqual([], payload["incidents"])
 
     def test_history_route_validates_filters(self):
         status, _, body = asyncio.run(

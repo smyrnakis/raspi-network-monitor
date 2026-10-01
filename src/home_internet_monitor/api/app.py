@@ -116,10 +116,16 @@ def create_app(
     def gaps(
         limit: int = Query(100, ge=1, le=500),
         offset: int = Query(0, ge=0),
+        minimum_duration_seconds: int = Query(0, ge=0, le=86400),
         query: MonitoringQueries = Depends(queries),
     ):
         return {
-            "items": query.gaps(config.site.site_id, limit, offset),
+            "items": query.gaps(
+                config.site.site_id,
+                limit,
+                offset,
+                minimum_duration_seconds=minimum_duration_seconds,
+            ),
             "limit": limit,
             "offset": offset,
         }

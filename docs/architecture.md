@@ -126,6 +126,78 @@ The initial V2 order is:
 3. VPN health probes kept separate from native-WAN availability.
 4. Optional, low-frequency, data-budgeted speed tests.
 
+### Deferred email notification design
+
+Email notifications are approved as future work but are not implemented yet.
+The monitor will reuse the Raspberry Pi's protected `msmtp` configuration;
+sender and SMTP fields do not belong in this application's settings or Git.
+`raspi4-01` currently has `msmtp` and `/etc/msmtprc`, but not the reusable
+`raspi-notify` queue. Recheck that state before implementation.
+
+The application will keep its own durable notification outbox because delivery
+depends on incident state, summaries, recipient policy, and generated graphs. A
+hardened root-owned timer will deliver queued mail through `msmtp`, while the
+monitor process remains unprivileged and cannot read SMTP credentials. Delivery
+must retry safely, prevent duplicates, and combine an unsent start notification
+with recovery rather than sending stale messages back-to-back.
+
+Each locally stored recipient can be enabled independently and select an
+incident policy: none, start only, end only, start and end, or full lifecycle
+including meaningful classification changes. Daily, weekly, and monthly
+summaries are separate per-recipient subscriptions. One configurable minimum
+event duration applies to incidents and monitoring gaps. Start notifications
+wait until that threshold is reached; shorter events send no immediate email.
+Monitoring-gap mail is evaluated after monitoring resumes.
+
+Template design remains a separate collaborative step. The planned email has
+HTML and plain-text forms, with compact overall-status and ping-latency graphs
+for both the preceding hour and seven days. Graphs should be embedded rather
+than loaded from an external service. No real recipient address or mail secret
+may be committed.
+
+### Deferred speed-test design
+
+Speed tests are approved as future work but are not implemented yet. They are
+performance measurements, not availability evidence, and must never feed the
+incident classifier. The preferred first engine is the open-source LibreSpeed
+CLI because it offers structured JSON, physical-interface binding, fixed-server
+selection, and controls for duration, chunks, and upload size. Sharing and
+telemetry remain disabled. Ookla's official CLI is an alternative if broader
+server coverage becomes more important than per-test data controls.
+
+A scheduled test may start only while the stable state is online, no incident
+or confirmation transition is active, native connectivity has been stable for
+at least five minutes, no other test is running, and the monthly data budget is
+available. It runs immediately after a normal monitoring round, binds to the
+physical interface, has a hard overall timeout, and is followed by another
+normal round. Monitoring rounds and speed tests must not overlap.
+
+Initial proposed defaults are one daily test at 04:00 local time, eight seconds
+each for download and upload, a 30-second overall timeout, a 20 GB monthly data
+budget, and 548 days of result retention. Settings should support manual-only,
+daily, or weekly schedules; local execution time; fixed server ID; test
+duration; monthly data budget; retention; and an explicit manual-run action.
+The manual action must warn that it can temporarily consume significant
+bandwidth.
+
+Each installation should pin one reviewed nearby server so results remain
+comparable. Store its ID and name with each result. An unavailable server
+produces a failed test rather than silently changing the baseline; any future
+fallback must be explicit and identifiable in history.
+
+Persist start and completion time, download and upload Mbps, ping, jitter,
+transferred byte counts, server ID and name, physical interface, outcome,
+bounded failure reason, and tool version. Do not retain the public IP address,
+share-result URL, ISP or geolocation metadata, or raw command output. Compact
+results can follow the 548-day latency-summary retention period.
+
+The dashboard should show the latest result, last-success time, current-month
+data use, and a download/upload history chart with 7-day, 30-day, and one-year
+windows. Failed and skipped tests should be visible without being plotted as
+zero throughput. Tooltips should include time, values, and server name. The
+measurement represents performance available to that Raspberry Pi through its
+interface and selected server, not an absolute ISP-line capability.
+
 Traffic attribution needs a feasibility study because the routers expose no
 usable API. A Pi connected as an ordinary LAN endpoint cannot observe other
 devices' traffic. It would require a deliberate visibility method such as a
@@ -136,9 +208,9 @@ risk, and full packet payload retention is not a goal.
 Central aggregation, shared login, Grafana, MQTT, and Home Assistant remain
 optional after V2.
 
-The dashboard setting can hide completed incidents shorter than one minute from
-the Recent incidents list. It only changes presentation; short incidents remain
-stored and included in complete history and CSV export.
+The dashboard setting can hide completed incidents and monitoring gaps shorter
+than one minute from its two preview lists. It only changes presentation; short
+events remain stored and included in complete history and CSV export.
 Detailed combined incident and monitoring-gap history includes filtering,
 pagination, expandable diagnostics, and filtered CSV export. Incident notes
 remain optional follow-up work.
@@ -146,6 +218,6 @@ Consecutive incident records linked by a `category_transition` are one
 user-facing incident with multiple classification phases. The individual phase
 records remain intact for diagnostics, and no healthy interval is invented
 between them.
-Future reliability metrics may include MTBF based on confirmed incidents. The
-UI must state the selected calculation window and exclude monitoring gaps and
-other unknown time rather than presenting them as healthy operation.
+MTBF is calculated for the selected timeline window as classified online time
+divided by confirmed incident starts. Monitoring gaps and other unknown time
+are excluded, and classification phases in one continuous incident count once.

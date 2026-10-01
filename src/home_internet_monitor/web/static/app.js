@@ -53,6 +53,8 @@ const elements = {
   runTest: document.querySelector("#run-test"),
   availability: document.querySelector("#availability-value"),
   coverage: document.querySelector("#coverage-value"),
+  mtbf: document.querySelector("#mtbf-value"),
+  mtbfDetail: document.querySelector("#mtbf-detail"),
   timeline: document.querySelector("#timeline-track"),
   timelineTooltip: document.querySelector("#timeline-tooltip"),
   timelineStart: document.querySelector("#timeline-start"),
@@ -108,15 +110,15 @@ function rangeQuery(range) {
 }
 
 async function loadOverview() {
-  const [status, health, gaps] = await Promise.all([
+  const [status, health] = await Promise.all([
     api("/api/v1/status"),
     api("/api/v1/health"),
-    api("/api/v1/gaps?limit=5"),
   ]);
   const minimumDuration = status.dashboard?.hide_short_incidents ? 60 : 0;
-  const incidents = await api(
-    `/api/v1/incidents?limit=5&minimum_duration_seconds=${minimumDuration}`,
-  );
+  const [incidents, gaps] = await Promise.all([
+    api(`/api/v1/incidents?limit=5&minimum_duration_seconds=${minimumDuration}`),
+    api(`/api/v1/gaps?limit=5&minimum_duration_seconds=${minimumDuration}`),
+  ]);
   state.timezone = status.site.timezone;
   renderStatus(status);
   renderHealth(health);
@@ -206,6 +208,17 @@ function renderAvailability(payload) {
     : formatPercent(payload.availability);
   elements.coverage.textContent =
     `${formatPercent(payload.coverage)} (${formatKnownTime(payload.classified_seconds)})`;
+  if (payload.classified_seconds <= 0) {
+    elements.mtbf.textContent = "No data";
+    elements.mtbfDetail.textContent = "in selected window";
+  } else if (payload.incident_count === 0) {
+    elements.mtbf.textContent = "No failures";
+    elements.mtbfDetail.textContent = "in selected window";
+  } else {
+    elements.mtbf.textContent = formatMetricDuration(payload.mtbf_seconds);
+    elements.mtbfDetail.textContent =
+      `${payload.incident_count} confirmed incident${payload.incident_count === 1 ? "" : "s"}`;
+  }
   const band = payload.availability === null || payload.coverage < 0.5
     ? "unknown"
     : payload.availability >= 0.995
@@ -251,8 +264,7 @@ function renderLatency(payload) {
   const plotHeight = height - margin.top - margin.bottom;
   const startMs = new Date(payload.start).getTime();
   const endMs = new Date(payload.end).getTime();
-  // Scale to the plotted successful averages. Timeout-length failures are
-  // shown as separate red markers and must not flatten healthy latency lines.
+  // Scale to successful averages so timeouts cannot flatten healthy lines.
   const observedMax = allPoints.length
     ? Math.max(...allPoints.map((point) => point.avg_ms))
     : 100;
@@ -292,15 +304,36 @@ function renderLatency(payload) {
         stroke: color,
       }));
     });
-    series.points.filter((point) => point.failure_count > 0).forEach((point) => {
-      const x = margin.left + ((new Date(point.start).getTime() - startMs) / (endMs - startMs)) * plotWidth;
-      elements.latencyChart.append(svgElement("circle", {
-        cx: x,
-        cy: height - margin.bottom + 3,
-        r: 2.7,
-        class: "latency-failure",
-      }));
+  });
+
+  (payload.incidents || []).forEach((incident) => {
+    const incidentTime = Math.max(startMs, new Date(incident.start).getTime());
+    const x = margin.left + ((incidentTime - startMs) / (endMs - startMs)) * plotWidth;
+    const marker = svgElement("circle", {
+      cx: x,
+      cy: height - margin.bottom + 3,
+      r: 4.2,
+      class: "latency-incident",
+      tabindex: 0,
+      role: "link",
+      "aria-label": `Open ${label(incident.status)} incident from ${formatDate(incident.start, true)}`,
     });
+    const title = svgElement("title", {});
+    title.textContent = `Open ${label(incident.status)} incident`;
+    marker.append(title);
+    const openIncident = () => {
+      window.location.href =
+        `/history?focus_type=incident&focus_id=${encodeURIComponent(incident.incident_id)}`;
+    };
+    marker.addEventListener("pointerdown", (event) => event.stopPropagation());
+    marker.addEventListener("click", openIncident);
+    marker.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openIncident();
+      }
+    });
+    elements.latencyChart.append(marker);
   });
 
   const tooltipGeometry = { width, height, margin, plotWidth, startMs, endMs };
@@ -707,6 +740,18 @@ function formatKnownTime(seconds) {
     return `${Math.round(seconds / 3600)}h`;
   }
   return `${Math.round(seconds / 86400)}d`;
+}
+
+function formatMetricDuration(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "Not available";
+  const totalMinutes = Math.round(seconds / 60);
+  if (totalMinutes < 60) return `${totalMinutes}m`;
+  const totalHours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (totalHours < 48) return `${totalHours}h ${minutes}m`;
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  return `${days}d ${hours}h`;
 }
 
 function formatDate(value, includeSeconds = false) {

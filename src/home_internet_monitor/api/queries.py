@@ -192,16 +192,24 @@ class MonitoringQueries:
         return incidents
 
     def gaps(
-        self, site_id: str, limit: int = 100, offset: int = 0
+        self,
+        site_id: str,
+        limit: int = 100,
+        offset: int = 0,
+        *,
+        minimum_duration_seconds: int = 0,
     ) -> List[Dict[str, Any]]:
         _validate_page(limit, offset)
+        if minimum_duration_seconds < 0:
+            raise ValueError("minimum_duration_seconds must be non-negative")
         rows = self._connection.execute(
             """
             SELECT gap_id, start_ms, end_ms, reason
             FROM monitoring_gaps WHERE site_id = ?
+              AND (end_ms IS NULL OR end_ms - start_ms >= ?)
             ORDER BY start_ms DESC LIMIT ? OFFSET ?
             """,
-            (site_id, limit, offset),
+            (site_id, minimum_duration_seconds * 1000, limit, offset),
         ).fetchall()
         return [
             {
@@ -478,6 +486,18 @@ class MonitoringQueries:
         window_seconds = (end_ms - start_ms) / 1000.0
         classified = sum(duration_by_status[key] for key in _CLASSIFIED_STATUSES)
         online = duration_by_status[RoundStatus.ONLINE.value]
+        incident_row = self._connection.execute(
+            f"""
+            WITH {_INCIDENT_EPISODES_CTE}
+            SELECT COUNT(*) AS incident_count
+            FROM incident_episodes
+            WHERE site_id = ?
+              AND confirmed_start_ms >= ?
+              AND confirmed_start_ms < ?
+            """,
+            (site_id, start_ms, end_ms),
+        ).fetchone()
+        incident_count = incident_row["incident_count"]
         return {
             "start": _iso(start),
             "end": _iso(end),
@@ -486,6 +506,8 @@ class MonitoringQueries:
             "unknown_seconds": max(0.0, window_seconds - classified),
             "availability": online / classified if classified else None,
             "coverage": classified / window_seconds,
+            "incident_count": incident_count,
+            "mtbf_seconds": online / incident_count if incident_count else None,
             "duration_by_status_seconds": duration_by_status,
         }
 
@@ -618,10 +640,33 @@ class MonitoringQueries:
                     "max_ms": row["latency_max_ms"],
                 }
             )
+        incident_rows = self._connection.execute(
+            f"""
+            WITH {_INCIDENT_EPISODES_CTE}
+            SELECT episode_id, status, observed_start_ms, observed_end_ms
+            FROM incident_episodes
+            WHERE site_id = ? AND observed_start_ms < ?
+              AND (observed_end_ms IS NULL OR observed_end_ms > ?)
+            ORDER BY observed_start_ms
+            LIMIT 501
+            """,
+            (site_id, end_ms, start_ms),
+        ).fetchall()
+        if len(incident_rows) > 500:
+            raise ValueError("selected latency window contains too many incidents")
         return {
             "start": _iso(start),
             "end": _iso(end),
             "bucket_seconds": bucket_seconds,
+            "incidents": [
+                {
+                    "incident_id": row["episode_id"],
+                    "status": row["status"],
+                    "start": _iso(_datetime(row["observed_start_ms"])),
+                    "end": _iso(_optional_datetime(row["observed_end_ms"])),
+                }
+                for row in incident_rows
+            ],
             "series": [
                 {
                     "target_id": target["target_id"],

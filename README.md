@@ -12,7 +12,7 @@ V1 is running on a Raspberry Pi 4 and includes:
 - Independent gateway, external IP, DNS, and HTTPS probes.
 - Confirmed incidents with failure and recovery thresholds.
 - Monitoring-gap and clock-trust detection.
-- Availability timeline and ping-latency chart.
+- Availability timeline, windowed MTBF, and ping-latency chart.
 - Detailed filtered history and CSV export.
 - Runtime settings, retention, SQLite backups, and health checks.
 - Native `systemd` services with a dedicated unprivileged user.
@@ -150,7 +150,7 @@ device traffic capture.
 
 V2 priorities are email notifications, device-level traffic attribution,
 separate VPN-health probes, and low-frequency speed tests. Future UI work may
-add MTBF and incident notes.
+add incident notes.
 
 Never commit credentials, private keys, personal email addresses, public IP
 addresses, or dynamic-DNS URLs.

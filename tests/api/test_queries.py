@@ -88,6 +88,76 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(900, result["unknown_seconds"])
         self.assertAlmostEqual(2 / 3, result["availability"])
         self.assertEqual(0.75, result["coverage"])
+        self.assertEqual(0, result["incident_count"])
+        self.assertIsNone(result["mtbf_seconds"])
+
+    def test_mtbf_counts_incident_episode_once_and_excludes_unknown_time(self):
+        end = BASE + timedelta(hours=2)
+        connection = connect_database(self.path)
+        for interval_id, status, start, interval_end in (
+            ("online", "online", BASE, BASE + timedelta(minutes=50)),
+            (
+                "down",
+                "internet_down",
+                BASE + timedelta(minutes=50),
+                BASE + timedelta(hours=1),
+            ),
+            ("unknown", "monitoring_unknown", BASE + timedelta(hours=1), end),
+        ):
+            connection.execute(
+                """
+                INSERT INTO status_intervals(
+                    interval_id, site_id, status, start_ms, confirmed_at_ms, end_ms
+                ) VALUES (?, 'home', ?, ?, ?, ?)
+                """,
+                (
+                    interval_id,
+                    status,
+                    epoch_ms(start),
+                    epoch_ms(start),
+                    epoch_ms(interval_end),
+                ),
+            )
+        first_start = epoch_ms(BASE + timedelta(minutes=50))
+        boundary = epoch_ms(BASE + timedelta(minutes=55))
+        final_end = epoch_ms(BASE + timedelta(hours=1))
+        connection.execute(
+            """
+            INSERT INTO incidents(
+                incident_id, site_id, status, lifecycle,
+                observed_start_ms, confirmed_start_ms,
+                observed_end_ms, confirmed_end_ms, end_reason,
+                previous_incident_id, notes, created_at_ms, updated_at_ms
+            ) VALUES
+                ('mtbf-phase-1', 'home', 'partial_connectivity', 'closed',
+                 ?, ?, ?, ?, 'category_transition', NULL, '', ?, ?),
+                ('mtbf-phase-2', 'home', 'internet_down', 'closed',
+                 ?, ?, ?, ?, 'recovered', 'mtbf-phase-1', '', ?, ?)
+            """,
+            (
+                first_start,
+                first_start + 20_000,
+                boundary,
+                boundary + 20_000,
+                first_start,
+                boundary,
+                boundary,
+                boundary + 20_000,
+                final_end,
+                final_end + 20_000,
+                boundary,
+                final_end,
+            ),
+        )
+        connection.commit()
+        connection.close()
+
+        result = self.queries.availability("home", BASE, end)
+
+        self.assertEqual(1, result["incident_count"])
+        self.assertEqual(3000, result["mtbf_seconds"])
+        self.assertEqual(3600, result["classified_seconds"])
+        self.assertEqual(3600, result["unknown_seconds"])
 
     def test_empty_window_returns_null_availability(self):
         result = self.queries.availability(
@@ -96,6 +166,8 @@ class QueryTests(unittest.TestCase):
         self.assertIsNone(result["availability"])
         self.assertEqual(0, result["coverage"])
         self.assertEqual(3600, result["unknown_seconds"])
+        self.assertEqual(0, result["incident_count"])
+        self.assertIsNone(result["mtbf_seconds"])
 
     def test_timeline_clips_segments_to_selected_window(self):
         connection = connect_database(self.path)
@@ -161,6 +233,27 @@ class QueryTests(unittest.TestCase):
                 """,
                 (round_id, outcome, latency),
             )
+        incident_start = epoch_ms(BASE + timedelta(minutes=2))
+        incident_end = epoch_ms(BASE + timedelta(minutes=7))
+        connection.execute(
+            """
+            INSERT INTO incidents(
+                incident_id, site_id, status, lifecycle,
+                observed_start_ms, confirmed_start_ms,
+                observed_end_ms, confirmed_end_ms, end_reason,
+                previous_incident_id, notes, created_at_ms, updated_at_ms
+            ) VALUES ('latency-incident', 'home', 'internet_down', 'closed',
+                      ?, ?, ?, ?, 'recovered', NULL, '', ?, ?)
+            """,
+            (
+                incident_start,
+                incident_start,
+                incident_end,
+                incident_end,
+                incident_start,
+                incident_end,
+            ),
+        )
         connection.commit()
         connection.close()
 
@@ -175,6 +268,8 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(2, points[0]["success_count"])
         self.assertEqual(1, points[1]["failure_count"])
         self.assertIsNone(points[1]["avg_ms"])
+        self.assertEqual("latency-incident", result["incidents"][0]["incident_id"])
+        self.assertEqual("internet_down", result["incidents"][0]["status"])
 
     def test_combined_history_filters_paginates_and_loads_one_item(self):
         connection = connect_database(self.path)
@@ -255,6 +350,33 @@ class QueryTests(unittest.TestCase):
 
         self.assertEqual(["long"], [incident["incident_id"] for incident in visible])
 
+    def test_gap_minimum_duration_filters_before_pagination(self):
+        connection = connect_database(self.path)
+        for gap_id, start_minute, duration_seconds in (
+            ("long", 1, 120),
+            ("short", 4, 30),
+        ):
+            start = epoch_ms(BASE + timedelta(minutes=start_minute))
+            end = start + duration_seconds * 1000
+            connection.execute(
+                """
+                INSERT INTO monitoring_gaps(
+                    gap_id, site_id, start_ms, end_ms, reason,
+                    current_boot_id, current_process_id, created_at_ms
+                ) VALUES (?, 'home', ?, ?, 'process_restart',
+                          'boot', 'process', ?)
+                """,
+                (gap_id, start, end, start),
+            )
+        connection.commit()
+        connection.close()
+
+        visible = self.queries.gaps(
+            "home", limit=1, minimum_duration_seconds=60
+        )
+
+        self.assertEqual(["long"], [gap["gap_id"] for gap in visible])
+
     def test_category_transition_is_one_incident_with_diagnostic_phases(self):
         connection = connect_database(self.path)
         first_start = epoch_ms(BASE + timedelta(minutes=1))
@@ -297,6 +419,9 @@ class QueryTests(unittest.TestCase):
         history = self.queries.history("home")
         filtered = self.queries.history("home", category="partial_connectivity")
         selected = self.queries.history_item("home", "incident", "phase-2")
+        latency = self.queries.latency(
+            "home", BASE, BASE + timedelta(minutes=10), 300
+        )
 
         self.assertEqual(1, len(incidents))
         self.assertEqual("phase-1", incidents[0]["incident_id"])
@@ -313,6 +438,7 @@ class QueryTests(unittest.TestCase):
             [phase["incident_id"] for phase in selected["phases"]],
         )
         self.assertEqual(60, selected["duration_seconds"])
+        self.assertEqual(["phase-1"], [item["incident_id"] for item in latency["incidents"]])
 
     def test_history_exposes_saved_failed_tests_with_target_labels(self):
         connection = connect_database(self.path)

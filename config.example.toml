@@ -31,7 +31,7 @@ raw_samples_days = 7
 latency_aggregates_days = 548
 
 [dashboard]
-# Presentation-only: short incidents remain in Detailed history and CSV export.
+# Presentation-only: short incidents and gaps remain in Detailed history and CSV.
 hide_short_incidents = true
 
 [[probes]]
