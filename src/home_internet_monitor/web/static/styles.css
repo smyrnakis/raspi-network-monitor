@@ -545,6 +545,43 @@ a {
   background: repeating-linear-gradient(135deg, #667085 0 5px, #98a2b3 5px 10px);
 }
 
+.timeline-incidents {
+  position: relative;
+  height: 10px;
+  margin-top: 7px;
+  overflow: hidden;
+}
+
+.timeline-incident {
+  position: absolute;
+  top: 1px;
+  min-width: 6px;
+  height: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 3px;
+  padding: 0;
+  background: var(--down);
+  box-shadow: 0 0 0 1px rgba(113, 22, 32, 0.45);
+  cursor: pointer;
+  transition: filter 120ms ease, transform 120ms ease;
+}
+
+.timeline-incident:hover,
+.timeline-incident:focus-visible {
+  filter: brightness(1.12);
+  transform: scaleY(1.35);
+}
+
+.timeline-incident:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.timeline-incident[data-status="gateway_unreachable"] { background: var(--gateway); }
+.timeline-incident[data-status="dns_failure"] { background: var(--dns); }
+.timeline-incident[data-status="partial_connectivity"] { background: var(--partial); }
+.timeline-incident[data-status="monitoring_unknown"] { background: var(--unknown); }
+
 .timeline-tooltip {
   position: absolute;
   top: 0;
@@ -559,6 +596,8 @@ a {
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
   font-size: 0.76rem;
   line-height: 1.4;
+  text-align: center;
+  white-space: pre-line;
   pointer-events: none;
   transform: translate(-50%, calc(-100% - 8px));
 }
@@ -603,6 +642,15 @@ a {
 .legend i[data-status="gateway_unreachable"] { background: #b54708; }
 .legend i[data-status="dns_failure"] { background: #7841b8; }
 .legend i[data-status="partial_connectivity"] { background: #d97706; }
+
+.legend .incident-marker-key {
+  width: 13px;
+  height: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 2px;
+  background: var(--down);
+  box-shadow: 0 0 0 1px rgba(113, 22, 32, 0.45);
+}
 
 .section-note {
   margin: 5px 0 0;

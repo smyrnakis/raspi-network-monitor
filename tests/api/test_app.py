@@ -103,7 +103,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual("home", payload["site"]["site_id"])
         self.assertEqual("monitoring_unknown", payload["stable_status"])
         self.assertTrue(payload["hostname"])
-        self.assertEqual("0.4.7", payload["version"])
+        self.assertEqual("0.4.8", payload["version"])
         self.assertTrue(payload["dashboard"]["hide_short_incidents"])
 
     def test_invalid_availability_window_returns_400(self):
@@ -142,6 +142,7 @@ class AppTests(unittest.TestCase):
         self.assertIn(b"30d", body)
         self.assertIn(b"Custom", body)
         self.assertIn(b"timeline-tooltip", body)
+        self.assertIn(b"timeline-incidents", body)
         self.assertIn(b"Ping latency", body)
         self.assertIn(b'id="mtbf-value"', body)
         self.assertIn(b'data-latency-window="1h"', body)
@@ -159,6 +160,8 @@ class AppTests(unittest.TestCase):
         self.assertIn(b"javascript", headers[b"content-type"])
         self.assertIn(b"selectedRange", body)
         self.assertIn(b"timelineBucketCount", body)
+        self.assertIn(b"renderTimelineIncidents", body)
+        self.assertIn(b"incidentDescription", body)
         self.assertIn(b"TOOLTIP_HIDE_DELAY_MS", body)
         self.assertIn(b'max-width: 540px', body)
         self.assertIn(b"setPointerCapture", body)

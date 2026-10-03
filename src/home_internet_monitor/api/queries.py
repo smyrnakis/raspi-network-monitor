@@ -557,6 +557,7 @@ class MonitoringQueries:
             "start": _iso(start),
             "end": _iso(end),
             "segments": segments,
+            "incidents": self._incident_markers(site_id, start_ms, end_ms),
         }
 
     def latency(
@@ -640,33 +641,12 @@ class MonitoringQueries:
                     "max_ms": row["latency_max_ms"],
                 }
             )
-        incident_rows = self._connection.execute(
-            f"""
-            WITH {_INCIDENT_EPISODES_CTE}
-            SELECT episode_id, status, observed_start_ms, observed_end_ms
-            FROM incident_episodes
-            WHERE site_id = ? AND observed_start_ms < ?
-              AND (observed_end_ms IS NULL OR observed_end_ms > ?)
-            ORDER BY observed_start_ms
-            LIMIT 501
-            """,
-            (site_id, end_ms, start_ms),
-        ).fetchall()
-        if len(incident_rows) > 500:
-            raise ValueError("selected latency window contains too many incidents")
+        incidents = self._incident_markers(site_id, start_ms, end_ms)
         return {
             "start": _iso(start),
             "end": _iso(end),
             "bucket_seconds": bucket_seconds,
-            "incidents": [
-                {
-                    "incident_id": row["episode_id"],
-                    "status": row["status"],
-                    "start": _iso(_datetime(row["observed_start_ms"])),
-                    "end": _iso(_optional_datetime(row["observed_end_ms"])),
-                }
-                for row in incident_rows
-            ],
+            "incidents": incidents,
             "series": [
                 {
                     "target_id": target["target_id"],
@@ -677,6 +657,40 @@ class MonitoringQueries:
                 for target in targets
             ],
         }
+
+    def _incident_markers(
+        self,
+        site_id: str,
+        start_ms: int,
+        end_ms: int,
+        max_incidents: int = 500,
+    ) -> List[Dict[str, Any]]:
+        incident_rows = self._connection.execute(
+            f"""
+            WITH {_INCIDENT_EPISODES_CTE}
+            SELECT episode_id, status, observed_start_ms, observed_end_ms,
+                   phase_categories, phase_count
+            FROM incident_episodes
+            WHERE site_id = ? AND observed_start_ms < ?
+              AND (observed_end_ms IS NULL OR observed_end_ms > ?)
+            ORDER BY observed_start_ms
+            LIMIT ?
+            """,
+            (site_id, end_ms, start_ms, max_incidents + 1),
+        ).fetchall()
+        if len(incident_rows) > max_incidents:
+            raise ValueError("selected window contains too many incidents")
+        return [
+            {
+                "incident_id": row["episode_id"],
+                "status": row["status"],
+                "start": _iso(_datetime(row["observed_start_ms"])),
+                "end": _iso(_optional_datetime(row["observed_end_ms"])),
+                "categories": row["phase_categories"].split(","),
+                "phase_count": row["phase_count"],
+            }
+            for row in incident_rows
+        ]
 
 
 def default_window(now: datetime) -> tuple:

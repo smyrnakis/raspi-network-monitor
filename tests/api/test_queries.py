@@ -183,6 +183,27 @@ class QueryTests(unittest.TestCase):
                 epoch_ms(BASE + timedelta(hours=2)),
             ),
         )
+        incident_start = epoch_ms(BASE + timedelta(minutes=40))
+        incident_end = epoch_ms(BASE + timedelta(minutes=45))
+        connection.execute(
+            """
+            INSERT INTO incidents(
+                incident_id, site_id, status, lifecycle,
+                observed_start_ms, confirmed_start_ms,
+                observed_end_ms, confirmed_end_ms, end_reason,
+                previous_incident_id, notes, created_at_ms, updated_at_ms
+            ) VALUES ('timeline-short', 'home', 'internet_down', 'closed',
+                      ?, ?, ?, ?, 'recovered', NULL, '', ?, ?)
+            """,
+            (
+                incident_start,
+                incident_start,
+                incident_end,
+                incident_end,
+                incident_start,
+                incident_end,
+            ),
+        )
         connection.commit()
         connection.close()
 
@@ -197,6 +218,10 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(3600, result["segments"][0]["duration_seconds"])
         self.assertEqual("2026-01-01T00:30:00Z", result["segments"][0]["start"])
         self.assertEqual("2026-01-01T01:30:00Z", result["segments"][0]["end"])
+        self.assertEqual(1, len(result["incidents"]))
+        self.assertEqual("timeline-short", result["incidents"][0]["incident_id"])
+        self.assertEqual("internet_down", result["incidents"][0]["status"])
+        self.assertEqual(["internet_down"], result["incidents"][0]["categories"])
 
     def test_latency_groups_ping_samples_into_requested_buckets(self):
         connection = connect_database(self.path)

@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
     <title>Network monitor</title>
-    <script src="/assets/theme.js?v=0.4.7"></script>
-    <link rel="stylesheet" href="/assets/styles.css?v=0.4.7">
-    <script src="/assets/app.js?v=0.4.7" defer></script>
+    <script src="/assets/theme.js?v=0.4.8"></script>
+    <link rel="stylesheet" href="/assets/styles.css?v=0.4.8">
+    <script src="/assets/app.js?v=0.4.8" defer></script>
   </head>
   <body>
     <header class="topbar">
@@ -111,6 +111,7 @@
 
         <div class="timeline-wrap">
           <div class="timeline-track" id="timeline-track" role="group" aria-label="Connection status timeline"></div>
+          <div class="timeline-incidents" id="timeline-incidents" role="group" aria-label="Confirmed incidents"></div>
           <div class="timeline-tooltip" id="timeline-tooltip" role="status" hidden></div>
           <div class="timeline-axis">
             <time id="timeline-start">...</time>
@@ -125,6 +126,7 @@
           <span><i data-status="dns_failure"></i>DNS failure</span>
           <span><i data-status="partial_connectivity"></i>Partial</span>
           <span><i data-status="monitoring_unknown"></i>Unknown</span>
+          <span><i class="incident-marker-key"></i>Confirmed incident marker</span>
         </div>
       </section>
 

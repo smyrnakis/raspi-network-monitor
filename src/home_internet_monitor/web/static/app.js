@@ -56,6 +56,7 @@ const elements = {
   mtbf: document.querySelector("#mtbf-value"),
   mtbfDetail: document.querySelector("#mtbf-detail"),
   timeline: document.querySelector("#timeline-track"),
+  timelineIncidents: document.querySelector("#timeline-incidents"),
   timelineTooltip: document.querySelector("#timeline-tooltip"),
   timelineStart: document.querySelector("#timeline-start"),
   timelineEnd: document.querySelector("#timeline-end"),
@@ -560,11 +561,56 @@ function renderTimeline(payload) {
     node.addEventListener("click", () => showTimelineTooltip(bucket, index, buckets.length));
     elements.timeline.appendChild(node);
   });
+  renderTimelineIncidents(payload.incidents || [], start, end);
   elements.timeline.setAttribute(
     "aria-label",
     `Connection status timeline from ${formatDate(payload.start, true)} to ` +
       `${formatDate(payload.end, true)}`,
   );
+}
+
+function renderTimelineIncidents(incidents, start, end) {
+  elements.timelineIncidents.replaceChildren();
+  elements.timelineIncidents.setAttribute(
+    "aria-label",
+    `${incidents.length} confirmed incident${incidents.length === 1 ? "" : "s"} in selected window`,
+  );
+  incidents.forEach((incident) => {
+    const incidentStart = new Date(incident.start).getTime();
+    const incidentEnd = incident.end ? new Date(incident.end).getTime() : Date.now();
+    const visibleStart = Math.max(start, incidentStart);
+    const visibleEnd = Math.min(end, incidentEnd);
+    if (visibleEnd <= visibleStart) return;
+
+    const left = ((visibleStart - start) / (end - start)) * 100;
+    const width = ((visibleEnd - visibleStart) / (end - start)) * 100;
+    const center = ((visibleStart + visibleEnd) / 2 - start) / (end - start);
+    const description = incidentDescription(incident, incidentStart, incidentEnd);
+    const marker = document.createElement("button");
+    marker.type = "button";
+    marker.className = "timeline-incident";
+    marker.dataset.status = incident.status;
+    marker.style.left = `${left}%`;
+    marker.style.width = `${width}%`;
+    marker.setAttribute("aria-label", `Open ${description.replace("\n", ". ")}`);
+    marker.addEventListener("pointerenter", () => showTimelineTooltipText(description, center));
+    marker.addEventListener("focus", () => showTimelineTooltipText(description, center));
+    marker.addEventListener("pointerleave", hideTimelineTooltip);
+    marker.addEventListener("blur", hideTimelineTooltip);
+    marker.addEventListener("click", () => {
+      window.location.href =
+        `/history?focus_type=incident&focus_id=${encodeURIComponent(incident.incident_id)}`;
+    });
+    elements.timelineIncidents.appendChild(marker);
+  });
+}
+
+function incidentDescription(incident, start, end) {
+  const categories = incident.categories || [incident.status];
+  const title = categories.length > 1 ? "Connectivity incident" : label(incident.status);
+  const duration = formatDuration(Math.max(0, end - start) / 1000);
+  const endLabel = incident.end ? formatDate(incident.end) : "ongoing";
+  return `${title} · ${duration}\n${formatDate(incident.start)} to ${endLabel}`;
 }
 
 function timelineBucketCount(start, end) {
@@ -615,12 +661,13 @@ function bucketDescription(bucket) {
 }
 
 function showTimelineTooltip(bucket, index, count) {
+  showTimelineTooltipText(bucketDescription(bucket), (index + 0.5) / count);
+}
+
+function showTimelineTooltipText(description, position) {
   window.clearTimeout(state.timelineTooltipTimer);
-  elements.timelineTooltip.textContent = bucketDescription(bucket);
-  elements.timelineTooltip.style.setProperty(
-    "--tooltip-left",
-    `${((index + 0.5) / count) * 100}%`,
-  );
+  elements.timelineTooltip.textContent = description;
+  elements.timelineTooltip.style.setProperty("--tooltip-left", `${position * 100}%`);
   elements.timelineTooltip.hidden = false;
   state.timelineTooltipTimer = window.setTimeout(hideTimelineTooltip, TOOLTIP_HIDE_DELAY_MS);
 }
@@ -726,10 +773,11 @@ function formatDuration(seconds) {
   if (seconds < 60) return `${Math.round(seconds)}s`;
   const minutes = Math.round(seconds / 60);
   if (minutes < 60) return `${minutes}m`;
-  const hours = minutes / 60;
-  if (hours < 48) return `${hours.toFixed(hours < 10 ? 1 : 0)}h`;
-  const days = hours / 24;
-  return `${days.toFixed(days < 10 ? 1 : 0)}d`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (hours < 48) return `${hours}h ${remainingMinutes}m`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ${hours % 24}h`;
 }
 
 function formatKnownTime(seconds) {
