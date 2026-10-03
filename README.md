@@ -13,11 +13,21 @@ V1 is running on a Raspberry Pi 4 and includes:
 - Confirmed incidents with failure and recovery thresholds.
 - Monitoring-gap and clock-trust detection.
 - Availability timeline, windowed MTBF, and ping-latency chart.
-- Detailed filtered history and CSV export.
+- Detailed filtered history, CSV export, and printable PDF reports.
 - Runtime settings, retention, SQLite backups, and health checks.
 - Native `systemd` services with a dedicated unprivileged user.
 
 Raspberry Pi 3 remains a compatibility target but has not been tested.
+
+## Screenshots
+
+### Dashboard overview
+
+![Dark-theme network monitoring dashboard](docs/images/dashboard-overview-dark.png)
+
+### Detailed history
+
+![Dark-theme detailed incident history](docs/images/detailed-history-dark.png)
 
 ## Installation
 
