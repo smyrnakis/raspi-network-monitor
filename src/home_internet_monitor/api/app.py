@@ -63,6 +63,10 @@ def create_app(
     def history_page():
         return FileResponse(static_directory / "history.html")
 
+    @app.get("/report", include_in_schema=False)
+    def report_page():
+        return FileResponse(static_directory / "report.html")
+
     def queries() -> Iterator[MonitoringQueries]:
         connection = connect_readonly(config.storage.database_path)
         try:
@@ -88,6 +92,15 @@ def create_app(
             payload["dashboard"] = {
                 "hide_short_incidents": (
                     active_config.dashboard.hide_short_incidents
+                ),
+                "mtbf_minimum_incident_minutes": (
+                    active_config.dashboard.mtbf_minimum_incident_minutes
+                ),
+                "default_timeline_window": (
+                    active_config.dashboard.default_timeline_window
+                ),
+                "default_latency_window": (
+                    active_config.dashboard.default_latency_window
                 ),
             }
             return payload
@@ -177,8 +190,14 @@ def create_app(
         default_start, _ = default_window(effective_end)
         effective_start = _utc(start or default_start)
         try:
+            active_config = runtime_settings.load_config()
             return query.availability(
-                config.site.site_id, effective_start, effective_end
+                config.site.site_id,
+                effective_start,
+                effective_end,
+                minimum_incident_duration_seconds=(
+                    active_config.dashboard.mtbf_minimum_incident_minutes * 60
+                ),
             )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error

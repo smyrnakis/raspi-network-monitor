@@ -272,7 +272,9 @@ Policy decisions for V1:
 - Unknown and gap time contributes to neither reachable nor unreachable time.
 - MTBF uses only classified online time and counts merged incident episodes by
   their first confirmed start inside the selected window. Classification
-  transitions within one continuous incident count as one failure.
+  transitions within one continuous incident count as one failure. Episodes
+  shorter than the configured MTBF minimum duration are excluded from this
+  count; the default minimum is one minute.
 - If the window contains no confirmed incident start, MTBF is presented as
   "No failures" rather than infinity. If there is no classified time, it is
   presented as "No data".

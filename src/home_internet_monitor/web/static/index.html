@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
     <title>Network monitor</title>
-    <script src="/assets/theme.js?v=0.4.8"></script>
-    <link rel="stylesheet" href="/assets/styles.css?v=0.4.8">
-    <script src="/assets/app.js?v=0.4.8" defer></script>
+    <script src="/assets/theme.js?v=0.4.18"></script>
+    <link rel="stylesheet" href="/assets/styles.css?v=0.4.18">
+    <script src="/assets/app.js?v=0.4.18" defer></script>
   </head>
   <body>
     <header class="topbar">
@@ -120,12 +120,9 @@
         </div>
 
         <div class="legend" aria-label="Timeline legend">
-          <span><i data-status="online"></i>Online</span>
-          <span><i data-status="internet_down"></i>Internet down</span>
-          <span><i data-status="gateway_unreachable"></i>Gateway unreachable</span>
-          <span><i data-status="dns_failure"></i>DNS failure</span>
-          <span><i data-status="partial_connectivity"></i>Partial</span>
-          <span><i data-status="monitoring_unknown"></i>Unknown</span>
+          <span><i data-timeline="online"></i>Online</span>
+          <span><i class="impairment-gradient"></i>Impaired (darker = longer)</span>
+          <span><i data-timeline="unknown"></i>Unknown</span>
           <span><i class="incident-marker-key"></i>Confirmed incident marker</span>
         </div>
       </section>

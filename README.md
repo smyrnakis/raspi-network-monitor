@@ -57,6 +57,9 @@ Review these settings before installation:
 | `route.forbidden_interface_prefixes` | `["tun", "tap", "wg"]` | Prevents a VPN route from being mistaken for native internet health |
 | `retention.raw_samples_days` | `7` | Keeps recent probe-level details |
 | `retention.latency_aggregates_days` | `548` | Keeps compact long-term latency history |
+| `dashboard.mtbf_minimum_incident_minutes` | `1` | Excludes briefer incidents from MTBF only |
+| `dashboard.default_timeline_window` | `24h` | Initial Timeline window |
+| `dashboard.default_latency_window` | `1h` | Initial Ping latency window |
 
 The failure threshold is three rounds and recovery threshold is two rounds by
 default. At a 10-second interval, confirmation normally takes about 30 seconds;

@@ -66,6 +66,8 @@ async def request(
 @unittest.skipUnless(FASTAPI_AVAILABLE, "FastAPI dependency is not installed")
 class AppTests(unittest.TestCase):
     def setUp(self):
+        self.event_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.event_loop)
         self.temporary = tempfile.TemporaryDirectory()
         self.path = Path(self.temporary.name) / "monitor.db"
         connection = connect_database(self.path)
@@ -95,6 +97,8 @@ class AppTests(unittest.TestCase):
 
     def tearDown(self):
         self.temporary.cleanup()
+        self.event_loop.close()
+        asyncio.set_event_loop(None)
 
     def test_status_route_returns_initialized_site(self):
         status, _, body = asyncio.run(request(self.app, "/api/v1/status"))
@@ -103,8 +107,11 @@ class AppTests(unittest.TestCase):
         self.assertEqual("home", payload["site"]["site_id"])
         self.assertEqual("monitoring_unknown", payload["stable_status"])
         self.assertTrue(payload["hostname"])
-        self.assertEqual("0.4.8", payload["version"])
+        self.assertEqual("0.4.18", payload["version"])
         self.assertTrue(payload["dashboard"]["hide_short_incidents"])
+        self.assertEqual(1, payload["dashboard"]["mtbf_minimum_incident_minutes"])
+        self.assertEqual("24h", payload["dashboard"]["default_timeline_window"])
+        self.assertEqual("1h", payload["dashboard"]["default_latency_window"])
 
     def test_invalid_availability_window_returns_400(self):
         query = (
@@ -162,12 +169,17 @@ class AppTests(unittest.TestCase):
         self.assertIn(b"timelineBucketCount", body)
         self.assertIn(b"renderTimelineIncidents", body)
         self.assertIn(b"incidentDescription", body)
+        self.assertIn(b"formatIncidentRange", body)
+        self.assertIn(b"INCIDENT_TAG_LABELS", body)
+        self.assertIn(b"IMPAIRED_STATUSES", body)
+        self.assertIn(b"impairmentColor", body)
         self.assertIn(b"TOOLTIP_HIDE_DELAY_MS", body)
         self.assertIn(b'max-width: 540px', body)
         self.assertIn(b"setPointerCapture", body)
         self.assertIn(b"latencyTooltipLabel", body)
         self.assertIn(b"formatLatencyTooltipTime", body)
         self.assertIn(b"formatMetricDuration", body)
+        self.assertIn(b"applyDashboardPreferences", body)
         self.assertIn(b"latency-incident", body)
         self.assertIn(b'/api/v1/incidents?limit=5', body)
         self.assertIn(b'/api/v1/gaps?limit=5', body)
@@ -184,6 +196,17 @@ class AppTests(unittest.TestCase):
         self.assertIn(b"Probe targets", body)
         self.assertIn(b"Data retention", body)
         self.assertIn(b"Hide events shorter than one minute", body)
+        self.assertIn(b"MTBF sensitivity", body)
+        self.assertIn(b"Default dashboard windows", body)
+        self.assertIn(b'id="mtbf-minimum-incident-minutes"', body)
+        self.assertIn(b'id="default-timeline-window"', body)
+        self.assertIn(b'id="default-latency-window"', body)
+
+        status, headers, body = asyncio.run(request(self.app, "/assets/settings.js"))
+        self.assertEqual(200, status)
+        self.assertIn(b"mtbf_minimum_incident_minutes", body)
+        self.assertIn(b"default_timeline_window", body)
+        self.assertIn(b"default_latency_window", body)
 
         status, headers, body = asyncio.run(request(self.app, "/assets/theme.js"))
         self.assertEqual(200, status)
@@ -195,11 +218,16 @@ class AppTests(unittest.TestCase):
         self.assertIn(b"text/css", headers[b"content-type"])
         self.assertIn(b"touch-action: pan-y", body)
         self.assertIn(b".history-event-content", body)
+        self.assertIn(b"size: A4 portrait", body)
+        self.assertIn(b'"metrics latency"', body)
+        self.assertIn(b'"timeline timeline"', body)
+        self.assertIn(b"border-bottom: 0.5pt solid #b8c6bf", body)
 
         status, headers, body = asyncio.run(request(self.app, "/history"))
         self.assertEqual(200, status)
         self.assertIn(b"text/html", headers[b"content-type"])
         self.assertIn(b"Download filtered CSV", body)
+        self.assertIn(b"View report", body)
         self.assertIn(b"20 events per page", body)
 
         status, headers, body = asyncio.run(request(self.app, "/assets/history.js"))
@@ -208,6 +236,27 @@ class AppTests(unittest.TestCase):
         self.assertIn(b"/api/v1/history.csv", body)
         self.assertIn(b"focus_type", body)
         self.assertIn(b"Failed when confirmed", body)
+        self.assertIn(b'ensureDefaultTime(elements.startDate, elements.startTime, "00:00")', body)
+        self.assertIn(b'ensureDefaultTime(elements.endDate, elements.endTime, "23:59")', body)
+        self.assertIn(b'group.addEventListener("focusout"', body)
+
+        status, headers, body = asyncio.run(request(self.app, "/report"))
+        self.assertEqual(200, status)
+        self.assertIn(b"text/html", headers[b"content-type"])
+        self.assertIn(b"Network monitoring report", body)
+        self.assertIn(b"Print / Save as PDF", body)
+        self.assertIn(b"Classification", body)
+        self.assertIn(b'id="report-period"', body)
+        self.assertIn(b"report-timeline-card", body)
+        self.assertIn(b"report-latency-card", body)
+
+        status, headers, body = asyncio.run(request(self.app, "/assets/report.js"))
+        self.assertEqual(200, status)
+        self.assertIn(b"javascript", headers[b"content-type"])
+        self.assertIn(b"allHistory", body)
+        self.assertIn(b"Monitoring gap", body)
+        self.assertIn(b"7 * 24 * 3600", body)
+        self.assertIn(b"Event status/reason", body)
 
     def test_manual_test_requires_action_header(self):
         status, _, body = asyncio.run(

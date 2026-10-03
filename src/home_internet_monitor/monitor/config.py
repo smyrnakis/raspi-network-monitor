@@ -16,6 +16,8 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.9 and 3.10
 from .models import ProbeTarget, TargetKind
 
 _SITE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+_TIMELINE_WINDOWS = {"24h", "7d", "30d"}
+_LATENCY_WINDOWS = {"1h", "24h", "7d"}
 
 
 class ConfigError(ValueError):
@@ -65,6 +67,9 @@ class RetentionConfig:
 @dataclass(frozen=True)
 class DashboardConfig:
     hide_short_incidents: bool = True
+    mtbf_minimum_incident_minutes: int = 1
+    default_timeline_window: str = "24h"
+    default_latency_window: str = "1h"
 
 
 @dataclass(frozen=True)
@@ -103,6 +108,11 @@ def editable_settings(config: AppConfig) -> dict[str, Any]:
         },
         "dashboard": {
             "hide_short_incidents": config.dashboard.hide_short_incidents,
+            "mtbf_minimum_incident_minutes": (
+                config.dashboard.mtbf_minimum_incident_minutes
+            ),
+            "default_timeline_window": config.dashboard.default_timeline_window,
+            "default_latency_window": config.dashboard.default_latency_window,
         },
         "probes": [
             {
@@ -170,6 +180,21 @@ def apply_editable_settings(
             dashboard_raw,
             "hide_short_incidents",
             base.dashboard.hide_short_incidents,
+        ),
+        mtbf_minimum_incident_minutes=_integer(
+            dashboard_raw,
+            "mtbf_minimum_incident_minutes",
+            base.dashboard.mtbf_minimum_incident_minutes,
+        ),
+        default_timeline_window=_string(
+            dashboard_raw,
+            "default_timeline_window",
+            base.dashboard.default_timeline_window,
+        ),
+        default_latency_window=_string(
+            dashboard_raw,
+            "default_latency_window",
+            base.dashboard.default_latency_window,
         ),
     )
     rows = raw.get("probes")
@@ -266,7 +291,16 @@ def parse_config(raw: Mapping[str, Any]) -> AppConfig:
     dashboard = DashboardConfig(
         hide_short_incidents=_boolean(
             dashboard_raw, "hide_short_incidents", True
-        )
+        ),
+        mtbf_minimum_incident_minutes=_integer(
+            dashboard_raw, "mtbf_minimum_incident_minutes", 1
+        ),
+        default_timeline_window=_string(
+            dashboard_raw, "default_timeline_window", "24h"
+        ),
+        default_latency_window=_string(
+            dashboard_raw, "default_latency_window", "1h"
+        ),
     )
 
     probe_rows = raw.get("probes")
@@ -358,6 +392,12 @@ def _validate(config: AppConfig) -> None:
         raise ConfigError("latency aggregate retention must be positive")
     if config.retention.latency_aggregates_days <= config.retention.raw_samples_days:
         raise ConfigError("latency aggregate retention must exceed raw sample retention")
+    if not 0 <= config.dashboard.mtbf_minimum_incident_minutes <= 1440:
+        raise ConfigError("MTBF minimum incident duration must be between 0 and 1440 minutes")
+    if config.dashboard.default_timeline_window not in _TIMELINE_WINDOWS:
+        raise ConfigError("default timeline window must be 24h, 7d, or 30d")
+    if config.dashboard.default_latency_window not in _LATENCY_WINDOWS:
+        raise ConfigError("default latency window must be 1h, 24h, or 7d")
 
     enabled = tuple(probe for probe in config.probes if probe.enabled)
     ids = [probe.target_id for probe in config.probes]

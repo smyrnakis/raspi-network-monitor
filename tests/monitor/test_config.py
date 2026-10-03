@@ -34,6 +34,9 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(7, config.retention.raw_samples_days)
         self.assertIsNone(config.retention.incidents_days)
         self.assertEqual(548, config.retention.latency_aggregates_days)
+        self.assertEqual(1, config.dashboard.mtbf_minimum_incident_minutes)
+        self.assertEqual("24h", config.dashboard.default_timeline_window)
+        self.assertEqual("1h", config.dashboard.default_latency_window)
         self.assertTrue(
             next(p for p in config.probes if p.kind is TargetKind.HTTPS).require_native_route
         )
@@ -84,6 +87,17 @@ class ConfigTests(unittest.TestCase):
             "latency_aggregates_days": 30,
         }
         with self.assertRaisesRegex(ConfigError, "must exceed raw sample retention"):
+            parse_config(raw)
+
+    def test_rejects_invalid_dashboard_defaults(self):
+        raw = valid_config()
+        raw["dashboard"] = {"default_timeline_window": "1h"}
+        with self.assertRaisesRegex(ConfigError, "default timeline window"):
+            parse_config(raw)
+
+        raw = valid_config()
+        raw["dashboard"] = {"mtbf_minimum_incident_minutes": -1}
+        with self.assertRaisesRegex(ConfigError, "MTBF minimum incident duration"):
             parse_config(raw)
 
 if __name__ == "__main__":

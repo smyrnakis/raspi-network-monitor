@@ -14,17 +14,22 @@ const STATUS_LABELS = {
   running: "Testing",
 };
 
+const INCIDENT_TAG_LABELS = {
+  internet_down: "Down",
+  gateway_unreachable: "Gateway",
+  dns_failure: "DNS",
+  partial_connectivity: "Partial",
+};
+
 const AUTO_REFRESH_SECONDS = 10;
 const TOOLTIP_HIDE_DELAY_MS = 3200;
 
-const STATUS_PRIORITY = {
-  monitoring_unknown: 0,
-  online: 1,
-  partial_connectivity: 2,
-  dns_failure: 3,
-  internet_down: 4,
-  gateway_unreachable: 5,
-};
+const IMPAIRED_STATUSES = new Set([
+  "internet_down",
+  "gateway_unreachable",
+  "dns_failure",
+  "partial_connectivity",
+]);
 
 const state = {
   preset: "24h",
@@ -38,6 +43,7 @@ const state = {
   nextRefreshAt: null,
   timelineTooltipTimer: null,
   hiddenLatencyTargets: new Set(),
+  preferencesInitialized: false,
 };
 
 const elements = {
@@ -121,10 +127,33 @@ async function loadOverview() {
     api(`/api/v1/gaps?limit=5&minimum_duration_seconds=${minimumDuration}`),
   ]);
   state.timezone = status.site.timezone;
+  applyDashboardPreferences(status.dashboard);
   renderStatus(status);
   renderHealth(health);
   renderIncidents(incidents.items);
   renderGaps(gaps.items);
+}
+
+function applyDashboardPreferences(dashboard = {}) {
+  if (state.preferencesInitialized) return;
+  const timelineWindow = ["24h", "7d", "30d"].includes(
+    dashboard.default_timeline_window,
+  ) ? dashboard.default_timeline_window : "24h";
+  const latencyWindow = ["1h", "24h", "7d"].includes(
+    dashboard.default_latency_window,
+  ) ? dashboard.default_latency_window : "1h";
+  state.preset = timelineWindow;
+  state.latencyPreset = latencyWindow;
+  document.querySelectorAll(".window-button").forEach((button) => {
+    button.classList.toggle("active", button.dataset.window === timelineWindow);
+  });
+  document.querySelectorAll(".latency-window").forEach((button) => {
+    button.classList.toggle(
+      "active",
+      button.dataset.latencyWindow === latencyWindow,
+    );
+  });
+  state.preferencesInitialized = true;
 }
 
 async function loadTimeline() {
@@ -214,11 +243,13 @@ function renderAvailability(payload) {
     elements.mtbfDetail.textContent = "in selected window";
   } else if (payload.incident_count === 0) {
     elements.mtbf.textContent = "No failures";
-    elements.mtbfDetail.textContent = "in selected window";
+    elements.mtbfDetail.textContent = payload.mtbf_minimum_incident_seconds > 0
+      ? `no incidents lasting ${formatMetricDuration(payload.mtbf_minimum_incident_seconds)} or longer`
+      : "in selected window";
   } else {
     elements.mtbf.textContent = formatMetricDuration(payload.mtbf_seconds);
     elements.mtbfDetail.textContent =
-      `${payload.incident_count} confirmed incident${payload.incident_count === 1 ? "" : "s"}`;
+      `${payload.incident_count} qualifying incident${payload.incident_count === 1 ? "" : "s"}`;
   }
   const band = payload.availability === null || payload.coverage < 0.5
     ? "unknown"
@@ -555,9 +586,13 @@ function renderTimeline(payload) {
     const node = document.createElement("button");
     node.type = "button";
     node.className = "timeline-segment";
-    node.dataset.status = bucket.status;
+    node.dataset.state = bucket.classifiedMs
+      ? (bucket.impairedMs ? "impaired" : "online")
+      : "unknown";
+    node.style.setProperty("--impairment-color", impairmentColor(bucket.impairedShare));
+    node.style.setProperty("--unknown-opacity", Math.min(0.9, bucket.unknownShare * 1.5));
     const description = bucketDescription(bucket);
-    node.setAttribute("aria-label", description);
+    node.setAttribute("aria-label", description.replaceAll("\n", ". "));
     node.addEventListener("click", () => showTimelineTooltip(bucket, index, buckets.length));
     elements.timeline.appendChild(node);
   });
@@ -631,7 +666,7 @@ function timelineBuckets(start, end, segments) {
     const bucketStart = start + index * bucketMs;
     const bucketEnd = index === count - 1 ? end : start + (index + 1) * bucketMs;
     const durations = {};
-    let classifiedMs = 0;
+    let observedMs = 0;
 
     segments.forEach((segment) => {
       const overlapStart = Math.max(bucketStart, new Date(segment.start).getTime());
@@ -639,25 +674,41 @@ function timelineBuckets(start, end, segments) {
       const overlapMs = Math.max(0, overlapEnd - overlapStart);
       if (!overlapMs) return;
       durations[segment.status] = (durations[segment.status] || 0) + overlapMs;
-      classifiedMs += overlapMs;
+      observedMs += overlapMs;
     });
 
-    durations.monitoring_unknown = Math.max(0, bucketEnd - bucketStart - classifiedMs);
-    const status = Object.entries(durations).sort(([statusA, durationA], [statusB, durationB]) =>
-      durationB - durationA || STATUS_PRIORITY[statusB] - STATUS_PRIORITY[statusA]
-    )[0][0];
+    const bucketDurationMs = bucketEnd - bucketStart;
+    const missingMs = Math.max(0, bucketDurationMs - observedMs);
+    const unknownMs = (durations.monitoring_unknown || 0) + missingMs;
+    const impairedMs = [...IMPAIRED_STATUSES]
+      .reduce((total, status) => total + (durations[status] || 0), 0);
+    const onlineMs = durations.online || 0;
+    const classifiedMs = onlineMs + impairedMs;
     return {
       start: new Date(bucketStart),
       end: new Date(bucketEnd),
-      status,
-      statusShare: durations[status] / (bucketEnd - bucketStart),
+      classifiedMs,
+      impairedMs,
+      unknownMs,
+      impairedShare: impairedMs / bucketDurationMs,
+      unknownShare: unknownMs / bucketDurationMs,
     };
   });
 }
 
 function bucketDescription(bucket) {
-  return `${label(bucket.status)} (${formatPercent(bucket.statusShare)} of this segment): ` +
-    `${formatDate(bucket.start.toISOString())} to ${formatDate(bucket.end.toISOString())}`;
+  return `${formatDate(bucket.start.toISOString())} to ${formatDate(bucket.end.toISOString())}\n` +
+    `Impaired: ${formatDuration(bucket.impairedMs / 1000)} ` +
+    `(${formatPercent(bucket.impairedShare)})\n` +
+    `Unknown: ${formatDuration(bucket.unknownMs / 1000)} ` +
+    `(${formatPercent(bucket.unknownShare)})`;
+}
+
+function impairmentColor(share) {
+  if (!share) return "var(--online)";
+  const intensity = Math.min(1, Math.max(0.22, Math.sqrt(share)));
+  const lightness = 78 - intensity * 44;
+  return `hsl(352 72% ${lightness.toFixed(1)}%)`;
 }
 
 function showTimelineTooltip(bucket, index, count) {
@@ -691,13 +742,12 @@ function renderIncidents(items) {
     const hasPhases = categories.length > 1;
     elements.incidentList.appendChild(eventRow(
       hasPhases ? "Connectivity incident" : label(item.status),
-      `${formatDate(item.observed_start, true)}${item.observed_end ? "" : " · ongoing"}`,
-      hasPhases
-        ? categories.map(label).join(" → ")
-        : (item.end_reason ? `Ended: ${label(item.end_reason)}` : "Confirmed incident"),
+      formatIncidentRange(item.observed_start, item.observed_end),
+      null,
       formatDuration(seconds),
-      item.status,
+      hasPhases ? "multi" : item.status,
       `/history?focus_type=incident&focus_id=${encodeURIComponent(item.incident_id)}`,
+      hasPhases ? "Multi" : INCIDENT_TAG_LABELS[item.status],
     ));
   });
 }
@@ -722,7 +772,7 @@ function renderGaps(items) {
   });
 }
 
-function eventRow(title, time, meta, duration, status, href = null) {
+function eventRow(title, time, meta, duration, status, href = null, tagText = null) {
   const row = document.createElement(href ? "a" : "article");
   row.className = "event-row";
   if (href) row.href = href;
@@ -734,9 +784,10 @@ function eventRow(title, time, meta, duration, status, href = null) {
   const pill = document.createElement("span");
   pill.className = "status-pill";
   pill.dataset.status = status;
-  pill.textContent = label(status);
+  pill.textContent = tagText || label(status);
   heading.append(headingText, pill);
-  content.append(heading, textNode("event-time", time), textNode("event-meta", meta));
+  content.append(heading, textNode("event-time", time));
+  if (meta) content.appendChild(textNode("event-meta", meta));
   const durationNode = textNode("event-duration", duration);
   row.append(content, durationNode);
   return row;
@@ -778,6 +829,47 @@ function formatDuration(seconds) {
   if (hours < 48) return `${hours}h ${remainingMinutes}m`;
   const days = Math.floor(hours / 24);
   return `${days}d ${hours % 24}h`;
+}
+
+function formatIncidentRange(startValue, endValue) {
+  const start = new Date(startValue);
+  const startLabel = formatIncidentDateTime(start);
+  if (!endValue) return `${startLabel} - ongoing`;
+  const end = new Date(endValue);
+  const endLabel = localDayKey(start) === localDayKey(end)
+    ? formatIncidentTime(end)
+    : formatIncidentDateTime(end);
+  return `${startLabel} - ${endLabel}`;
+}
+
+function formatIncidentDateTime(value) {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: state.timezone,
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(value);
+}
+
+function formatIncidentTime(value) {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: state.timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(value);
+}
+
+function localDayKey(value) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: state.timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(value);
 }
 
 function formatKnownTime(seconds) {

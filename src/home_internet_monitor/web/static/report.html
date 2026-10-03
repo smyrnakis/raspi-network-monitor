@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>Network monitoring report</title>
+    <script src="/assets/theme.js?v=0.4.18"></script>
+    <link rel="stylesheet" href="/assets/styles.css?v=0.4.18">
+    <script src="/assets/report.js?v=0.4.18" defer></script>
+  </head>
+  <body class="report-body">
+    <main class="report-page">
+      <header class="report-header">
+        <div>
+          <h1>Network monitoring report</h1>
+          <div class="report-filter-summary" id="report-filter-summary">Preparing report...</div>
+        </div>
+        <div class="report-header-side">
+          <strong class="report-period" id="report-period">...</strong>
+          <div class="report-actions">
+            <a class="secondary-button" id="report-back" href="/history">Back to detailed history</a>
+            <button class="primary-button" id="report-print" type="button">Print / Save as PDF</button>
+          </div>
+        </div>
+      </header>
+
+      <div class="error-banner" id="report-error" role="alert" hidden></div>
+
+      <section class="report-overview" aria-label="Network overview">
+        <div class="report-metrics">
+          <article><span>Fully online</span><strong id="report-availability">...</strong></article>
+          <article><span>Coverage</span><strong id="report-coverage">...</strong></article>
+          <article><span>MTBF</span><strong id="report-mtbf">...</strong></article>
+          <article><span>Qualifying incidents</span><strong id="report-incident-count">...</strong></article>
+        </div>
+
+        <article class="report-chart-card report-timeline-card">
+          <h2>Timeline</h2>
+          <div class="report-timeline" id="report-timeline"></div>
+          <div class="report-axis"><span id="report-start">...</span><span id="report-end">...</span></div>
+          <div class="report-mini-legend">
+            <span><i data-report-state="online"></i>Online</span>
+            <span><i class="report-impaired-key"></i>Impaired</span>
+            <span><i data-report-state="unknown"></i>Unknown</span>
+          </div>
+        </article>
+
+        <article class="report-chart-card report-latency-card">
+          <h2>Ping latency</h2>
+          <svg id="report-latency" class="report-latency" viewBox="0 0 520 126"
+               role="img" aria-label="Ping latency chart"></svg>
+          <div class="report-latency-legend" id="report-latency-legend"></div>
+        </article>
+      </section>
+
+      <section class="report-events" aria-labelledby="report-events-heading">
+        <div class="report-events-heading">
+          <h2 id="report-events-heading">Events</h2>
+          <span id="report-event-count">Loading...</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Classification</th>
+              <th>Status</th>
+              <th>Started</th>
+              <th>Ended</th>
+              <th>Duration</th>
+            </tr>
+          </thead>
+          <tbody id="report-event-rows"></tbody>
+        </table>
+        <p class="empty-state" id="report-events-empty" hidden>No events match these filters.</p>
+      </section>
+
+      <footer class="report-footer">
+        <span id="report-footer-host"></span>
+        <span id="report-generated"></span>
+      </footer>
+    </main>
+  </body>
+</html>

@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light dark">
     <title>Detailed history · Network monitor</title>
-    <script src="/assets/theme.js?v=0.4.8"></script>
-    <link rel="stylesheet" href="/assets/styles.css?v=0.4.8">
-    <script src="/assets/history.js?v=0.4.8" defer></script>
+    <script src="/assets/theme.js?v=0.4.18"></script>
+    <link rel="stylesheet" href="/assets/styles.css?v=0.4.18">
+    <script src="/assets/history.js?v=0.4.18" defer></script>
   </head>
   <body>
     <header class="topbar">
@@ -27,9 +27,12 @@
             <h1 id="history-heading">Detailed history</h1>
             <p>Confirmed connectivity incidents and monitoring gaps.</p>
           </div>
-          <a class="secondary-button" id="history-export" href="/api/v1/history.csv" download>
-            Download filtered CSV
-          </a>
+          <div class="history-title-actions">
+            <a class="secondary-button" id="history-report" href="/report">View report</a>
+            <a class="secondary-button" id="history-export" href="/api/v1/history.csv" download>
+              Download filtered CSV
+            </a>
+          </div>
         </div>
 
         <form class="history-filters" id="history-filters">
@@ -47,14 +50,20 @@
               <option value="">All statuses and reasons</option>
             </select>
           </label>
-          <label>
-            From
-            <input id="history-start" type="datetime-local">
-          </label>
-          <label>
-            Until
-            <input id="history-end" type="datetime-local">
-          </label>
+          <div class="history-filter-field">
+            <span>From</span>
+            <div class="history-date-time" id="history-start-group">
+              <input id="history-start-date" type="date" aria-label="From date">
+              <input id="history-start-time" type="time" aria-label="From time">
+            </div>
+          </div>
+          <div class="history-filter-field">
+            <span>Until</span>
+            <div class="history-date-time" id="history-end-group">
+              <input id="history-end-date" type="date" aria-label="Until date">
+              <input id="history-end-time" type="time" aria-label="Until time">
+            </div>
+          </div>
           <div class="history-filter-actions">
             <button type="submit" class="primary-button">Apply filters</button>
             <button type="button" class="secondary-button" id="history-reset">Reset</button>

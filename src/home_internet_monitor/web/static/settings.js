@@ -69,6 +69,12 @@ function populate(payload) {
   keepIncidentsForever.checked = payload.retention.incidents_days === null;
   incidentDays.value = payload.retention.incidents_days ?? 730;
   hideShortIncidents.checked = payload.dashboard.hide_short_incidents;
+  document.querySelector("#mtbf-minimum-incident-minutes").value =
+    payload.dashboard.mtbf_minimum_incident_minutes;
+  document.querySelector("#default-timeline-window").value =
+    payload.dashboard.default_timeline_window;
+  document.querySelector("#default-latency-window").value =
+    payload.dashboard.default_latency_window;
   updateIncidentRetentionState();
   probeSettings.replaceChildren(...payload.probes.map(probeEditor));
   saveButton.disabled = false;
@@ -162,6 +168,11 @@ function payloadFromForm() {
     },
     dashboard: {
       hide_short_incidents: hideShortIncidents.checked,
+      mtbf_minimum_incident_minutes: numberValue("mtbf-minimum-incident-minutes"),
+      default_timeline_window:
+        document.querySelector("#default-timeline-window").value,
+      default_latency_window:
+        document.querySelector("#default-latency-window").value,
     },
     probes,
   };

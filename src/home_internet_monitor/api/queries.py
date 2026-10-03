@@ -458,11 +458,14 @@ class MonitoringQueries:
         site_id: str,
         start: datetime,
         end: datetime,
+        minimum_incident_duration_seconds: int = 0,
     ) -> Dict[str, Any]:
         _require_utc(start)
         _require_utc(end)
         if end <= start:
             raise ValueError("end must be after start")
+        if minimum_incident_duration_seconds < 0:
+            raise ValueError("minimum incident duration cannot be negative")
         start_ms = _epoch_ms(start)
         end_ms = _epoch_ms(end)
         rows = self._connection.execute(
@@ -494,8 +497,15 @@ class MonitoringQueries:
             WHERE site_id = ?
               AND confirmed_start_ms >= ?
               AND confirmed_start_ms < ?
+              AND COALESCE(observed_end_ms, ?) - observed_start_ms >= ?
             """,
-            (site_id, start_ms, end_ms),
+            (
+                site_id,
+                start_ms,
+                end_ms,
+                end_ms,
+                minimum_incident_duration_seconds * 1000,
+            ),
         ).fetchone()
         incident_count = incident_row["incident_count"]
         return {
@@ -508,6 +518,7 @@ class MonitoringQueries:
             "coverage": classified / window_seconds,
             "incident_count": incident_count,
             "mtbf_seconds": online / incident_count if incident_count else None,
+            "mtbf_minimum_incident_seconds": minimum_incident_duration_seconds,
             "duration_by_status_seconds": duration_by_status,
         }
 

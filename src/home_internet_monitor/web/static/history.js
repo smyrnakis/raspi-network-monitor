@@ -29,10 +29,15 @@ const elements = {
   form: document.querySelector("#history-filters"),
   type: document.querySelector("#history-type"),
   category: document.querySelector("#history-category"),
-  start: document.querySelector("#history-start"),
-  end: document.querySelector("#history-end"),
+  startGroup: document.querySelector("#history-start-group"),
+  startDate: document.querySelector("#history-start-date"),
+  startTime: document.querySelector("#history-start-time"),
+  endGroup: document.querySelector("#history-end-group"),
+  endDate: document.querySelector("#history-end-date"),
+  endTime: document.querySelector("#history-end-time"),
   reset: document.querySelector("#history-reset"),
   export: document.querySelector("#history-export"),
+  report: document.querySelector("#history-report"),
   list: document.querySelector("#history-list"),
   count: document.querySelector("#history-count"),
   previous: document.querySelector("#history-previous"),
@@ -76,8 +81,10 @@ function filterParameters() {
   const parameters = new URLSearchParams();
   if (elements.type.value) parameters.set("event_type", elements.type.value);
   if (elements.category.value) parameters.set("category", elements.category.value);
-  if (elements.start.value) parameters.set("start", new Date(elements.start.value).toISOString());
-  if (elements.end.value) parameters.set("end", new Date(elements.end.value).toISOString());
+  const start = localDateTime(elements.startDate, elements.startTime);
+  const end = localDateTime(elements.endDate, elements.endTime);
+  if (start) parameters.set("start", new Date(start).toISOString());
+  if (end) parameters.set("end", new Date(end).toISOString());
   return parameters;
 }
 
@@ -85,6 +92,27 @@ function updateExportLink() {
   const parameters = filterParameters();
   const query = parameters.toString();
   elements.export.href = `/api/v1/history.csv${query ? `?${query}` : ""}`;
+  elements.report.href = `/report${query ? `?${query}` : ""}`;
+}
+
+function localDateTime(dateInput, timeInput) {
+  return dateInput.value && timeInput.value
+    ? `${dateInput.value}T${timeInput.value}`
+    : "";
+}
+
+function ensureDefaultTime(dateInput, timeInput, time) {
+  if (dateInput.value && !timeInput.value) {
+    timeInput.value = time;
+    updateExportLink();
+  }
+}
+
+function installDefaultTime(group, dateInput, timeInput, time) {
+  group.addEventListener("focusout", (event) => {
+    if (event.relatedTarget && group.contains(event.relatedTarget)) return;
+    ensureDefaultTime(dateInput, timeInput, time);
+  });
 }
 
 async function loadHistory() {
@@ -306,6 +334,9 @@ function emptyState(message) {
   return node;
 }
 
+installDefaultTime(elements.startGroup, elements.startDate, elements.startTime, "00:00");
+installDefaultTime(elements.endGroup, elements.endDate, elements.endTime, "23:59");
+
 elements.type.addEventListener("change", () => {
   updateCategories();
   updateExportLink();
@@ -313,9 +344,12 @@ elements.type.addEventListener("change", () => {
 elements.form.addEventListener("input", updateExportLink);
 elements.form.addEventListener("submit", (event) => {
   event.preventDefault();
+  ensureDefaultTime(elements.startDate, elements.startTime, "00:00");
+  ensureDefaultTime(elements.endDate, elements.endTime, "23:59");
   if (!elements.form.reportValidity()) return;
-  if (elements.start.value && elements.end.value &&
-      new Date(elements.end.value) <= new Date(elements.start.value)) {
+  const start = localDateTime(elements.startDate, elements.startTime);
+  const end = localDateTime(elements.endDate, elements.endTime);
+  if (start && end && new Date(end) <= new Date(start)) {
     elements.error.textContent = "Until must be after From.";
     elements.error.hidden = false;
     return;

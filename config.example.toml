@@ -33,6 +33,10 @@ latency_aggregates_days = 548
 [dashboard]
 # Presentation-only: short incidents and gaps remain in Detailed history and CSV.
 hide_short_incidents = true
+# MTBF ignores incident episodes shorter than this duration. Use 0 to count all.
+mtbf_minimum_incident_minutes = 1
+default_timeline_window = "24h"
+default_latency_window = "1h"
 
 [[probes]]
 id = "gateway"

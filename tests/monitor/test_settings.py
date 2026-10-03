@@ -41,6 +41,9 @@ class RuntimeSettingsTests(unittest.TestCase):
         payload["retention"]["raw_samples_days"] = 7
         payload["retention"]["incidents_days"] = None
         payload["dashboard"]["hide_short_incidents"] = False
+        payload["dashboard"]["mtbf_minimum_incident_minutes"] = 5
+        payload["dashboard"]["default_timeline_window"] = "7d"
+        payload["dashboard"]["default_latency_window"] = "24h"
 
         saved = self.store.save(payload)
 
@@ -52,6 +55,9 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(7, effective.retention.raw_samples_days)
         self.assertIsNone(effective.retention.incidents_days)
         self.assertFalse(effective.dashboard.hide_short_incidents)
+        self.assertEqual(5, effective.dashboard.mtbf_minimum_incident_minutes)
+        self.assertEqual("7d", effective.dashboard.default_timeline_window)
+        self.assertEqual("24h", effective.dashboard.default_latency_window)
         self.assertTrue(self.store.consume_restart_request())
         self.assertFalse(self.store.consume_restart_request())
 
@@ -90,6 +96,9 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(7, effective.retention.raw_samples_days)
         self.assertIsNone(effective.retention.incidents_days)
         self.assertTrue(effective.dashboard.hide_short_incidents)
+        self.assertEqual(1, effective.dashboard.mtbf_minimum_incident_minutes)
+        self.assertEqual("24h", effective.dashboard.default_timeline_window)
+        self.assertEqual("1h", effective.dashboard.default_latency_window)
 
 
 if __name__ == "__main__":

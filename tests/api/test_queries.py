@@ -159,6 +159,53 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(3600, result["classified_seconds"])
         self.assertEqual(3600, result["unknown_seconds"])
 
+    def test_mtbf_excludes_incidents_below_configured_duration(self):
+        end = BASE + timedelta(hours=1)
+        connection = connect_database(self.path)
+        connection.execute(
+            """
+            INSERT INTO status_intervals(
+                interval_id, site_id, status, start_ms, confirmed_at_ms, end_ms
+            ) VALUES ('online', 'home', 'online', ?, ?, ?)
+            """,
+            (epoch_ms(BASE), epoch_ms(BASE), epoch_ms(end)),
+        )
+        for incident_id, start, duration_seconds in (
+            ("brief", BASE + timedelta(minutes=10), 30),
+            ("qualifying", BASE + timedelta(minutes=20), 120),
+        ):
+            finish = start + timedelta(seconds=duration_seconds)
+            connection.execute(
+                """
+                INSERT INTO incidents(
+                    incident_id, site_id, status, lifecycle,
+                    observed_start_ms, confirmed_start_ms,
+                    observed_end_ms, confirmed_end_ms, end_reason,
+                    previous_incident_id, notes, created_at_ms, updated_at_ms
+                ) VALUES (?, 'home', 'internet_down', 'closed',
+                          ?, ?, ?, ?, 'recovered', NULL, '', ?, ?)
+                """,
+                (
+                    incident_id,
+                    epoch_ms(start),
+                    epoch_ms(start),
+                    epoch_ms(finish),
+                    epoch_ms(finish),
+                    epoch_ms(start),
+                    epoch_ms(finish),
+                ),
+            )
+        connection.commit()
+        connection.close()
+
+        result = self.queries.availability(
+            "home", BASE, end, minimum_incident_duration_seconds=60
+        )
+
+        self.assertEqual(1, result["incident_count"])
+        self.assertEqual(3600, result["mtbf_seconds"])
+        self.assertEqual(60, result["mtbf_minimum_incident_seconds"])
+
     def test_empty_window_returns_null_availability(self):
         result = self.queries.availability(
             "home", BASE, BASE + timedelta(hours=1)
