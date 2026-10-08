@@ -38,6 +38,23 @@ mtbf_minimum_incident_minutes = 1
 default_timeline_window = "24h"
 default_latency_window = "1h"
 
+# Optional independent service monitor. Keep deployment-specific client names,
+# tunnel addresses, and status paths in the local configuration only.
+# [[service_monitors]]
+# id = "remote_vpn_client"
+# label = "Remote VPN client"
+# kind = "openvpn_client"
+# endpoint = "10.8.0.2"
+# interval_seconds = 20
+# timeout_seconds = 3
+# failure_threshold = 3
+# recovery_threshold = 2
+# dashboard = "compact"
+#
+# For server-session evidence as well as tunnel reachability, also configure:
+# status_file = "/run/openvpn-server/status-server.log"
+# client_name = "deployment-specific-client-name"
+
 [[probes]]
 id = "gateway"
 kind = "gateway"

@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>Service monitor</title>
+    <script src="/assets/theme.js?v=0.5.5"></script>
+    <link rel="stylesheet" href="/assets/styles.css?v=0.5.5">
+    <script src="/assets/service.js?v=0.5.5" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="shell topbar-inner">
+        <a class="brand" href="/" aria-label="Network monitor home">
+          <span class="brand-mark" aria-hidden="true">N</span>
+          <span><strong>Network monitor</strong><small>Service details</small></span>
+        </a>
+        <a class="text-link" href="/">Overview</a>
+      </div>
+    </header>
+    <main class="shell page service-detail-page">
+      <div class="error-banner" id="service-error" role="alert" hidden></div>
+      <section class="service-detail-hero">
+        <div>
+          <p class="service-kicker">OpenVPN client</p>
+          <h1 id="service-name">Loading service…</h1>
+          <p id="service-description">Independent from native internet availability</p>
+        </div>
+        <div class="service-detail-current" id="service-current" data-status="unknown">
+          <i aria-hidden="true"></i>
+          <span><strong id="service-status">Unknown</strong><small id="service-checked">Not checked yet</small></span>
+        </div>
+      </section>
+      <section class="card service-detail-card" aria-labelledby="service-timeline-heading">
+        <div class="section-header timeline-header">
+          <div><h2 id="service-timeline-heading">Status timeline</h2><p class="section-note" id="service-window-description">Showing 7 days. Striped time has no monitoring data.</p></div>
+          <div class="window-controls" role="group" aria-label="Service timeline window">
+            <button type="button" class="window-button service-window" data-window="24h" aria-pressed="false">24h</button>
+            <button type="button" class="window-button service-window active" data-window="7d" aria-pressed="true">7d</button>
+            <button type="button" class="window-button service-window" data-window="30d" aria-pressed="false">30d</button>
+          </div>
+        </div>
+        <div class="service-detail-metrics">
+          <article><span>Availability</span><strong id="service-availability">...</strong><small id="service-availability-note">of monitored time</small></article>
+          <article><span>Current state</span><strong id="service-duration">...</strong><small>since last transition</small></article>
+          <article><span>Last incident</span><strong id="service-last-incident">...</strong><small id="service-last-incident-time">in selected history</small></article>
+          <article><span>Round trip</span><strong id="service-latency">...</strong><small>latest successful check</small></article>
+        </div>
+        <div class="service-detail-timeline" id="service-detail-timeline" role="img" aria-label="Service status timeline"></div>
+        <div class="timeline-axis"><time id="service-timeline-start">...</time><time id="service-timeline-end">...</time></div>
+        <div class="legend" aria-label="Service timeline legend">
+          <span><i data-service-status="up"></i>Connected</span>
+          <span><i data-service-status="degraded"></i>Degraded</span>
+          <span><i data-service-status="down"></i>Disconnected</span>
+          <span><i data-service-status="unknown"></i>Unknown</span>
+        </div>
+      </section>
+      <section class="card" aria-labelledby="service-incidents-heading">
+        <div class="section-header service-incidents-header">
+          <div>
+            <h2 id="service-incidents-heading">Recent incidents</h2>
+            <p class="section-note">Detection, confirmation, and recovery evidence.</p>
+          </div>
+        </div>
+        <div class="service-incident-list" id="service-incident-list"><p class="empty-state">Loading incidents…</p></div>
+      </section>
+      <section class="card service-settings-card" aria-labelledby="service-settings-heading">
+        <div class="section-header">
+          <div>
+            <h2 id="service-settings-heading">Service monitoring settings</h2>
+            <p class="section-note">Changes are validated and applied after the monitor restarts.</p>
+          </div>
+        </div>
+        <form id="service-settings-form">
+          <div class="service-settings-group">
+            <div>
+              <h3>Check schedule</h3>
+              <p>How often to test, and how long each test may take.</p>
+            </div>
+            <div class="settings-fields service-settings-fields">
+              <label>
+                Check every (seconds)
+                <input id="service-interval" type="number" min="2" step="1" required>
+              </label>
+              <label>
+                Test timeout (seconds)
+                <input id="service-timeout" type="number" min="0.1" step="0.1" required>
+              </label>
+              <label>
+                Confirm disconnection after (seconds)
+                <input id="service-failure-seconds" type="number" min="0" step="1" required>
+                <small id="service-failure-note"></small>
+              </label>
+              <label>
+                Confirm recovery after (seconds)
+                <input id="service-recovery-seconds" type="number" min="0" step="1" required>
+                <small id="service-recovery-note"></small>
+              </label>
+            </div>
+          </div>
+          <div class="service-settings-group">
+            <div>
+              <h3>Detection methods</h3>
+              <p>Use either method independently, or combine both for stronger evidence.</p>
+            </div>
+            <div class="service-methods">
+              <article class="service-method" id="service-icmp-method">
+                <label class="switch-label service-method-toggle">
+                  <input id="service-use-icmp" type="checkbox">
+                  <span><strong>ICMP reachability</strong><small>Ping the client’s VPN address.</small></span>
+                </label>
+                <label>
+                  VPN address
+                  <input id="service-endpoint" type="text" inputmode="decimal" placeholder="10.8.0.2">
+                </label>
+              </article>
+              <article class="service-method" id="service-status-method">
+                <label class="switch-label service-method-toggle">
+                  <input id="service-use-status" type="checkbox">
+                  <span><strong>OpenVPN session list</strong><small>Verify that the client appears in the server status file.</small></span>
+                </label>
+                <div class="service-method-fields">
+                  <label>
+                    Status file
+                    <input id="service-status-file" type="text" placeholder="/run/openvpn/server.status">
+                  </label>
+                  <label>
+                    Client name
+                    <input id="service-client-name" type="text" placeholder="remote-client">
+                  </label>
+                </div>
+              </article>
+            </div>
+          </div>
+          <div class="service-settings-group">
+            <div>
+              <h3>Dashboard</h3>
+              <p>Choose how this service appears on the overview.</p>
+            </div>
+            <div class="settings-fields">
+              <label>
+                Overview presentation
+                <select id="service-dashboard-mode" required>
+                  <option value="compact">Compact card</option>
+                  <option value="detailed">Detailed card</option>
+                  <option value="hidden">Hide from overview</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <div class="settings-actions service-settings-actions">
+            <button type="submit" class="primary-button" id="save-service-settings" disabled>Save service settings</button>
+            <p class="settings-message" id="service-settings-message" role="status"></p>
+          </div>
+        </form>
+      </section>
+    </main>
+    <footer class="shell footer"><span>Service history is separate from internet incidents.</span></footer>
+  </body>
+</html>

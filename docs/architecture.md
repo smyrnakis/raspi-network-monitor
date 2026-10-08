@@ -110,7 +110,6 @@ V1 deliberately does not include:
 
 - Email notifications or reports.
 - Device-level traffic attribution.
-- VPN health probes.
 - Speed tests.
 - Multi-site aggregation or synchronization.
 - Shared authentication.
@@ -123,8 +122,21 @@ The initial V2 order is:
 
 1. Email notifications with a durable outbox, retry, and recovery delivery.
 2. Device-level traffic attribution.
-3. VPN health probes kept separate from native-WAN availability.
+3. Additional service-monitor adapters beyond OpenVPN clients.
 4. Optional, low-frequency, data-budgeted speed tests.
+
+### Independent service monitors
+
+The worker can run optional service checks that have their own state,
+intervals, incidents, API, and dashboard cards. They reuse the existing worker,
+SQLite database, and web process, but never contribute to native-WAN
+classification. The initial adapter monitors an OpenVPN client through private
+tunnel reachability and can additionally use an OpenVPN server status file.
+
+Service-monitor configuration remains in the root-owned TOML file because it
+can contain deployment-specific tunnel addresses, client identities, and local
+paths. The public example contains placeholders only. Unknown service-monitor
+time is excluded from its availability calculation.
 
 ### Deferred email notification design
 

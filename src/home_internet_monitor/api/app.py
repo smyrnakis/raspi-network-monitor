@@ -67,6 +67,10 @@ def create_app(
     def report_page():
         return FileResponse(static_directory / "report.html")
 
+    @app.get("/service", include_in_schema=False)
+    def service_page():
+        return FileResponse(static_directory / "service.html")
+
     def queries() -> Iterator[MonitoringQueries]:
         connection = connect_readonly(config.storage.database_path)
         try:
@@ -234,6 +238,53 @@ def create_app(
             )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.get("/api/v1/services")
+    def services(query: MonitoringQueries = Depends(queries)):
+        return {
+            "items": query.service_summaries(
+                config.site.site_id, datetime.now(timezone.utc)
+            )
+        }
+
+    @app.get("/api/v1/services/{monitor_id}")
+    def service_summary(
+        monitor_id: str, query: MonitoringQueries = Depends(queries)
+    ):
+        payload = query.service_summary(
+            config.site.site_id, monitor_id, datetime.now(timezone.utc)
+        )
+        if payload is None:
+            raise HTTPException(status_code=404, detail="service monitor not found")
+        return payload
+
+    @app.get("/api/v1/services/{monitor_id}/timeline")
+    def service_timeline(
+        monitor_id: str,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+        query: MonitoringQueries = Depends(queries),
+    ):
+        effective_end = _utc(end or datetime.now(timezone.utc))
+        effective_start = _utc(start or (effective_end - timedelta(days=7)))
+        try:
+            return query.service_timeline(
+                config.site.site_id, monitor_id, effective_start, effective_end
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="service monitor not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.get("/api/v1/services/{monitor_id}/incidents")
+    def service_incidents(
+        monitor_id: str,
+        limit: int = Query(20, ge=1, le=100),
+        query: MonitoringQueries = Depends(queries),
+    ):
+        return {
+            "items": query.service_incidents(config.site.site_id, monitor_id, limit)
+        }
 
     @app.post("/api/v1/test")
     async def manual_test(

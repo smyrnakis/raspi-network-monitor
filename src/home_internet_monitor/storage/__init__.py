@@ -11,6 +11,7 @@ from .repository import (
     RetentionResult,
     RoundRecord,
 )
+from .service_repository import ServiceMonitorRepository
 
 __all__ = [
     "MonitoringRepository",
@@ -20,6 +21,7 @@ __all__ = [
     "ProbeTargetRecord",
     "RetentionResult",
     "RoundRecord",
+    "ServiceMonitorRepository",
     "connect_database",
     "connect_readonly",
     "migrate",

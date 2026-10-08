@@ -211,6 +211,94 @@ MIGRATIONS: Sequence[Migration] = (
             """,
         ),
     ),
+    (
+        4,
+        (
+            """
+            CREATE TABLE service_monitors (
+                monitor_id TEXT PRIMARY KEY,
+                site_id TEXT NOT NULL REFERENCES sites(site_id) ON DELETE CASCADE,
+                kind TEXT NOT NULL,
+                label TEXT NOT NULL,
+                endpoint TEXT,
+                interval_seconds REAL NOT NULL CHECK (interval_seconds > 0),
+                timeout_seconds REAL NOT NULL CHECK (timeout_seconds > 0),
+                display_mode TEXT NOT NULL CHECK (
+                    display_mode IN ('hidden', 'compact', 'detailed')
+                ),
+                enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+                created_at_ms INTEGER NOT NULL,
+                updated_at_ms INTEGER NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE service_monitor_state (
+                monitor_id TEXT PRIMARY KEY REFERENCES service_monitors(monitor_id)
+                    ON DELETE CASCADE,
+                stable_status TEXT NOT NULL CHECK (
+                    stable_status IN ('up', 'degraded', 'down', 'unknown')
+                ),
+                stable_since_ms INTEGER NOT NULL,
+                pending_status TEXT CHECK (
+                    pending_status IS NULL OR
+                    pending_status IN ('up', 'degraded', 'down', 'unknown')
+                ),
+                pending_count INTEGER NOT NULL CHECK (pending_count >= 0),
+                pending_started_ms INTEGER,
+                last_checked_ms INTEGER,
+                last_latency_ms REAL,
+                last_error_class TEXT,
+                updated_at_ms INTEGER NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE service_status_intervals (
+                interval_id TEXT PRIMARY KEY,
+                monitor_id TEXT NOT NULL REFERENCES service_monitors(monitor_id)
+                    ON DELETE CASCADE,
+                status TEXT NOT NULL CHECK (
+                    status IN ('up', 'degraded', 'down', 'unknown')
+                ),
+                start_ms INTEGER NOT NULL,
+                end_ms INTEGER,
+                CHECK (end_ms IS NULL OR end_ms >= start_ms)
+            )
+            """,
+            """
+            CREATE UNIQUE INDEX service_intervals_one_open
+            ON service_status_intervals(monitor_id) WHERE end_ms IS NULL
+            """,
+            """
+            CREATE INDEX service_intervals_monitor_start
+            ON service_status_intervals(monitor_id, start_ms DESC)
+            """,
+            """
+            CREATE TABLE service_incidents (
+                incident_id TEXT PRIMARY KEY,
+                monitor_id TEXT NOT NULL REFERENCES service_monitors(monitor_id)
+                    ON DELETE CASCADE,
+                status TEXT NOT NULL CHECK (status IN ('degraded', 'down')),
+                lifecycle TEXT NOT NULL CHECK (
+                    lifecycle IN ('open', 'closed', 'interrupted')
+                ),
+                observed_start_ms INTEGER NOT NULL,
+                confirmed_start_ms INTEGER NOT NULL,
+                observed_end_ms INTEGER,
+                confirmed_end_ms INTEGER,
+                end_reason TEXT,
+                error_class TEXT
+            )
+            """,
+            """
+            CREATE UNIQUE INDEX service_incidents_one_open
+            ON service_incidents(monitor_id) WHERE lifecycle = 'open'
+            """,
+            """
+            CREATE INDEX service_incidents_monitor_start
+            ON service_incidents(monitor_id, observed_start_ms DESC)
+            """,
+        ),
+    ),
 )
 
 

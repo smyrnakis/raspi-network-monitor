@@ -18,6 +18,7 @@ from .models import ProbeTarget, TargetKind
 _SITE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _TIMELINE_WINDOWS = {"24h", "7d", "30d"}
 _LATENCY_WINDOWS = {"1h", "24h", "7d"}
+_SERVICE_DASHBOARD_MODES = {"hidden", "compact", "detailed"}
 
 
 class ConfigError(ValueError):
@@ -73,6 +74,22 @@ class DashboardConfig:
 
 
 @dataclass(frozen=True)
+class ServiceMonitorConfig:
+    monitor_id: str
+    label: str
+    kind: str
+    endpoint: Optional[str]
+    status_file: Optional[Path]
+    client_name: Optional[str]
+    interval_seconds: float = 20.0
+    timeout_seconds: float = 3.0
+    failure_threshold: int = 3
+    recovery_threshold: int = 2
+    dashboard: str = "compact"
+    enabled: bool = True
+
+
+@dataclass(frozen=True)
 class AppConfig:
     site: SiteConfig
     storage: StorageConfig
@@ -82,6 +99,7 @@ class AppConfig:
     retention: RetentionConfig
     dashboard: DashboardConfig
     probes: Tuple[ProbeTarget, ...]
+    service_monitors: Tuple[ServiceMonitorConfig, ...] = ()
 
 
 def load_config(path: Path) -> AppConfig:
@@ -124,6 +142,25 @@ def editable_settings(config: AppConfig) -> dict[str, Any]:
                 "expected_status": probe.expected_status,
             }
             for probe in config.probes
+        ],
+        "service_monitors": [
+            {
+                "id": monitor.monitor_id,
+                "label": monitor.label,
+                "kind": monitor.kind,
+                "endpoint": monitor.endpoint,
+                "status_file": (
+                    str(monitor.status_file) if monitor.status_file is not None else None
+                ),
+                "client_name": monitor.client_name,
+                "interval_seconds": monitor.interval_seconds,
+                "timeout_seconds": monitor.timeout_seconds,
+                "failure_threshold": monitor.failure_threshold,
+                "recovery_threshold": monitor.recovery_threshold,
+                "dashboard": monitor.dashboard,
+                "enabled": monitor.enabled,
+            }
+            for monitor in config.service_monitors
         ],
     }
 
@@ -231,12 +268,74 @@ def apply_editable_settings(
                 expected_status=expected_status,
             )
         )
+
+    # Older runtime-settings files predate editable service monitors.
+    service_rows = raw.get("service_monitors")
+    if service_rows is None:
+        service_monitors = base.service_monitors
+    else:
+        if not isinstance(service_rows, list):
+            raise ConfigError("service_monitors must be a list")
+        services_by_id = {
+            monitor.monitor_id: monitor for monitor in base.service_monitors
+        }
+        if len(service_rows) != len(services_by_id):
+            raise ConfigError(
+                "settings must include every configured service monitor exactly once"
+            )
+        service_monitors_list = []
+        seen_services = set()
+        for row in service_rows:
+            if not isinstance(row, dict):
+                raise ConfigError("each service monitor setting must be an object")
+            monitor_id = _string(row, "id")
+            if monitor_id in seen_services or monitor_id not in services_by_id:
+                raise ConfigError(
+                    "service monitor settings contain an unknown or duplicate id"
+                )
+            seen_services.add(monitor_id)
+            original = services_by_id[monitor_id]
+            if row.get("kind") != original.kind:
+                raise ConfigError("service monitor kind cannot be changed")
+            endpoint = _optional_string(row, "endpoint", original.endpoint)
+            status_file = _optional_string(
+                row,
+                "status_file",
+                str(original.status_file) if original.status_file is not None else None,
+            )
+            client_name = _optional_string(
+                row, "client_name", original.client_name
+            )
+            service_monitors_list.append(
+                replace(
+                    original,
+                    endpoint=endpoint,
+                    status_file=Path(status_file) if status_file is not None else None,
+                    client_name=client_name,
+                    interval_seconds=_number(
+                        row, "interval_seconds", original.interval_seconds
+                    ),
+                    timeout_seconds=_number(
+                        row, "timeout_seconds", original.timeout_seconds
+                    ),
+                    failure_threshold=_integer(
+                        row, "failure_threshold", original.failure_threshold
+                    ),
+                    recovery_threshold=_integer(
+                        row, "recovery_threshold", original.recovery_threshold
+                    ),
+                    dashboard=_string(row, "dashboard", original.dashboard),
+                    enabled=_boolean(row, "enabled", original.enabled),
+                )
+            )
+        service_monitors = tuple(service_monitors_list)
     config = replace(
         base,
         monitor=monitor,
         retention=retention,
         dashboard=dashboard,
         probes=tuple(probes),
+        service_monitors=service_monitors,
     )
     _validate(config)
     return config
@@ -307,6 +406,10 @@ def parse_config(raw: Mapping[str, Any]) -> AppConfig:
     if not isinstance(probe_rows, list):
         raise ConfigError("at least one [[probes]] table is required")
     probes = tuple(_parse_probe(row) for row in probe_rows)
+    service_rows = raw.get("service_monitors", [])
+    if not isinstance(service_rows, list):
+        raise ConfigError("service_monitors must be a list")
+    service_monitors = tuple(_parse_service_monitor(row) for row in service_rows)
     config = AppConfig(
         site,
         StorageConfig(database_path),
@@ -316,6 +419,7 @@ def parse_config(raw: Mapping[str, Any]) -> AppConfig:
         retention,
         dashboard,
         probes,
+        service_monitors,
     )
     _validate(config)
     return config
@@ -342,6 +446,41 @@ def _parse_probe(raw: Any) -> ProbeTarget:
         require_native_route=_boolean(
             raw, "require_native_route", route_default
         ),
+    )
+
+
+def _parse_service_monitor(raw: Any) -> ServiceMonitorConfig:
+    if not isinstance(raw, dict):
+        raise ConfigError("each [[service_monitors]] value must be a table")
+    kind = _string(raw, "kind")
+    if kind != "openvpn_client":
+        raise ConfigError(f"invalid service monitor kind: {kind!r}")
+    endpoint = raw.get("endpoint")
+    if endpoint is not None and (not isinstance(endpoint, str) or not endpoint):
+        raise ConfigError("service monitor endpoint must be a non-empty string")
+    status_value = raw.get("status_file")
+    if status_value is not None and (
+        not isinstance(status_value, str) or not status_value
+    ):
+        raise ConfigError("service monitor status_file must be a non-empty string")
+    client_name = raw.get("client_name")
+    if client_name is not None and (
+        not isinstance(client_name, str) or not client_name
+    ):
+        raise ConfigError("service monitor client_name must be a non-empty string")
+    return ServiceMonitorConfig(
+        monitor_id=_string(raw, "id"),
+        label=_string(raw, "label"),
+        kind=kind,
+        endpoint=endpoint,
+        status_file=Path(status_value) if status_value is not None else None,
+        client_name=client_name,
+        interval_seconds=_number(raw, "interval_seconds", 20.0),
+        timeout_seconds=_number(raw, "timeout_seconds", 3.0),
+        failure_threshold=_integer(raw, "failure_threshold", 3),
+        recovery_threshold=_integer(raw, "recovery_threshold", 2),
+        dashboard=_string(raw, "dashboard", "compact"),
+        enabled=_boolean(raw, "enabled", True),
     )
 
 
@@ -437,6 +576,45 @@ def _validate(config: AppConfig) -> None:
             if probe.expected_status is not None and not 100 <= probe.expected_status <= 599:
                 raise ConfigError("probe expected_status must be between 100 and 599")
 
+    service_ids = [monitor.monitor_id for monitor in config.service_monitors]
+    if len(service_ids) != len(set(service_ids)):
+        raise ConfigError("service monitor ids must be unique")
+    for service in config.service_monitors:
+        if not _SITE_ID.fullmatch(service.monitor_id):
+            raise ConfigError(
+                "service monitor ids must contain lowercase letters, digits, _ or -"
+            )
+        if service.dashboard not in _SERVICE_DASHBOARD_MODES:
+            raise ConfigError("service monitor dashboard must be hidden, compact, or detailed")
+        if min(
+            service.interval_seconds,
+            service.timeout_seconds,
+            service.failure_threshold,
+            service.recovery_threshold,
+        ) <= 0:
+            raise ConfigError("service monitor intervals, timeouts and thresholds must be positive")
+        if service.timeout_seconds >= service.interval_seconds:
+            raise ConfigError("service monitor timeout must be below its interval")
+        if service.endpoint is None and (
+            service.status_file is None or service.client_name is None
+        ):
+            raise ConfigError(
+                "OpenVPN client monitor requires endpoint or status_file and client_name"
+            )
+        if service.endpoint is not None:
+            try:
+                address = ip_address(service.endpoint)
+            except ValueError as error:
+                raise ConfigError("OpenVPN client endpoint must be an IP address") from error
+            if not address.is_private:
+                raise ConfigError("OpenVPN client endpoint must be a private IP address")
+        if (service.status_file is None) != (service.client_name is None):
+            raise ConfigError(
+                "OpenVPN status_file and client_name must be configured together"
+            )
+        if service.status_file is not None and not service.status_file.root:
+            raise ConfigError("OpenVPN status_file must be an absolute path")
+
 
 def _table(raw: Mapping[str, Any], key: str) -> Mapping[str, Any]:
     value = raw.get(key)
@@ -456,6 +634,17 @@ def _string(raw: Mapping[str, Any], key: str, default: Optional[str] = None) -> 
     value = raw.get(key, default)
     if not isinstance(value, str) or not value:
         raise ConfigError(f"{key} must be a non-empty string")
+    return value
+
+
+def _optional_string(
+    raw: Mapping[str, Any], key: str, default: Optional[str] = None
+) -> Optional[str]:
+    value = raw.get(key, default)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise ConfigError(f"{key} must be a non-empty string or null")
     return value
 
 

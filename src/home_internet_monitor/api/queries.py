@@ -669,6 +669,178 @@ class MonitoringQueries:
             ],
         }
 
+    def service_summaries(
+        self, site_id: str, now: datetime
+    ) -> List[Dict[str, Any]]:
+        _require_utc(now)
+        rows = self._connection.execute(
+            """
+            SELECT m.*, s.stable_status, s.stable_since_ms,
+                   s.pending_status, s.pending_count, s.last_checked_ms,
+                   s.last_latency_ms, s.last_error_class
+            FROM service_monitors m
+            JOIN service_monitor_state s ON s.monitor_id = m.monitor_id
+            WHERE m.site_id = ? AND m.enabled = 1
+            ORDER BY m.created_at_ms, m.monitor_id
+            """,
+            (site_id,),
+        ).fetchall()
+        start = now - timedelta(days=7)
+        return [self._service_summary(row, start, now) for row in rows]
+
+    def service_summary(
+        self, site_id: str, monitor_id: str, now: datetime
+    ) -> Optional[Dict[str, Any]]:
+        _require_utc(now)
+        row = self._connection.execute(
+            """
+            SELECT m.*, s.stable_status, s.stable_since_ms,
+                   s.pending_status, s.pending_count, s.last_checked_ms,
+                   s.last_latency_ms, s.last_error_class
+            FROM service_monitors m
+            JOIN service_monitor_state s ON s.monitor_id = m.monitor_id
+            WHERE m.site_id = ? AND m.monitor_id = ? AND m.enabled = 1
+            """,
+            (site_id, monitor_id),
+        ).fetchone()
+        if row is None:
+            return None
+        return self._service_summary(row, now - timedelta(days=7), now)
+
+    def _service_summary(
+        self, row: sqlite3.Row, start: datetime, end: datetime
+    ) -> Dict[str, Any]:
+        start_ms = _epoch_ms(start)
+        end_ms = _epoch_ms(end)
+        durations = self._service_durations(row["monitor_id"], start_ms, end_ms)
+        classified = durations["up"] + durations["degraded"] + durations["down"]
+        last_checked = _optional_datetime(row["last_checked_ms"])
+        stale_after = max(30.0, row["interval_seconds"] * 3)
+        stale = last_checked is None or (end - last_checked).total_seconds() > stale_after
+        incident = self._connection.execute(
+            """
+            SELECT status, lifecycle, observed_start_ms, observed_end_ms,
+                   confirmed_start_ms, confirmed_end_ms, end_reason, error_class
+            FROM service_incidents WHERE monitor_id = ?
+            ORDER BY observed_start_ms DESC LIMIT 1
+            """,
+            (row["monitor_id"],),
+        ).fetchone()
+        return {
+            "id": row["monitor_id"],
+            "label": row["label"],
+            "kind": row["kind"],
+            "dashboard": row["display_mode"],
+            "status": "unknown" if stale else row["stable_status"],
+            "stored_status": row["stable_status"],
+            "stable_since": _iso(_datetime(row["stable_since_ms"])),
+            "pending_status": row["pending_status"],
+            "pending_count": row["pending_count"],
+            "last_checked": _iso(last_checked),
+            "last_latency_ms": row["last_latency_ms"],
+            "last_error_class": row["last_error_class"],
+            "stale": stale,
+            "availability_7d": durations["up"] / classified if classified else None,
+            "coverage_7d": classified / max(1.0, (end_ms - start_ms) / 1000.0),
+            "last_incident": _service_incident_dict(incident),
+        }
+
+    def service_timeline(
+        self,
+        site_id: str,
+        monitor_id: str,
+        start: datetime,
+        end: datetime,
+    ) -> Dict[str, Any]:
+        _require_utc(start)
+        _require_utc(end)
+        if end <= start:
+            raise ValueError("end must be after start")
+        exists = self._connection.execute(
+            "SELECT 1 FROM service_monitors WHERE site_id = ? AND monitor_id = ?",
+            (site_id, monitor_id),
+        ).fetchone()
+        if exists is None:
+            raise KeyError(monitor_id)
+        start_ms = _epoch_ms(start)
+        end_ms = _epoch_ms(end)
+        rows = self._connection.execute(
+            """
+            SELECT status, start_ms, end_ms
+            FROM service_status_intervals
+            WHERE monitor_id = ? AND start_ms < ?
+              AND (end_ms IS NULL OR end_ms > ?)
+            ORDER BY start_ms
+            """,
+            (monitor_id, end_ms, start_ms),
+        ).fetchall()
+        incidents = self.service_incidents(site_id, monitor_id, 100)
+        return {
+            "start": _iso(start),
+            "end": _iso(end),
+            "segments": [
+                {
+                    "status": row["status"],
+                    "start": _iso(_datetime(max(start_ms, row["start_ms"]))),
+                    "end": _iso(
+                        _datetime(min(end_ms, row["end_ms"] or end_ms))
+                    ),
+                }
+                for row in rows
+            ],
+            "incidents": [
+                item
+                for item in incidents
+                if _epoch_ms(datetime.fromisoformat(item["start"].replace("Z", "+00:00")))
+                < end_ms
+                and (
+                    item["end"] is None
+                    or _epoch_ms(datetime.fromisoformat(item["end"].replace("Z", "+00:00")))
+                    > start_ms
+                )
+            ],
+        }
+
+    def service_incidents(
+        self, site_id: str, monitor_id: str, limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        if not 1 <= limit <= 100:
+            raise ValueError("limit must be between 1 and 100")
+        rows = self._connection.execute(
+            """
+            SELECT i.status, i.lifecycle, i.observed_start_ms, i.observed_end_ms,
+                   i.confirmed_start_ms, i.confirmed_end_ms, i.end_reason,
+                   i.error_class
+            FROM service_incidents i
+            JOIN service_monitors m ON m.monitor_id = i.monitor_id
+            WHERE m.site_id = ? AND i.monitor_id = ?
+            ORDER BY i.observed_start_ms DESC LIMIT ?
+            """,
+            (site_id, monitor_id, limit),
+        ).fetchall()
+        return [_service_incident_dict(row) for row in rows]
+
+    def _service_durations(
+        self, monitor_id: str, start_ms: int, end_ms: int
+    ) -> Dict[str, float]:
+        rows = self._connection.execute(
+            """
+            SELECT status, start_ms, end_ms
+            FROM service_status_intervals
+            WHERE monitor_id = ? AND start_ms < ?
+              AND (end_ms IS NULL OR end_ms > ?)
+            """,
+            (monitor_id, end_ms, start_ms),
+        ).fetchall()
+        durations = {"up": 0.0, "degraded": 0.0, "down": 0.0, "unknown": 0.0}
+        for interval in rows:
+            clipped_start = max(start_ms, interval["start_ms"])
+            clipped_end = min(end_ms, interval["end_ms"] or end_ms)
+            durations[interval["status"]] += max(
+                0.0, (clipped_end - clipped_start) / 1000.0
+            )
+        return durations
+
     def _incident_markers(
         self,
         site_id: str,
@@ -742,6 +914,24 @@ def _incident_dict(row: Optional[sqlite3.Row]) -> Optional[Dict[str, Any]]:
         result["phase_categories"] = result["phase_categories"]
         result["categories"] = result["phase_categories"].split(",")
     return result
+
+
+def _service_incident_dict(row: Optional[sqlite3.Row]) -> Optional[Dict[str, Any]]:
+    if row is None:
+        return None
+    start = _datetime(row["observed_start_ms"])
+    end = _optional_datetime(row["observed_end_ms"])
+    return {
+        "status": row["status"],
+        "lifecycle": row["lifecycle"],
+        "start": _iso(start),
+        "end": _iso(end),
+        "confirmed_start": _iso(_optional_datetime(row["confirmed_start_ms"])),
+        "confirmed_end": _iso(_optional_datetime(row["confirmed_end_ms"])),
+        "duration_seconds": (end - start).total_seconds() if end else None,
+        "end_reason": row["end_reason"] if "end_reason" in row.keys() else None,
+        "error_class": row["error_class"] if "error_class" in row.keys() else None,
+    }
 
 
 def _validate_page(limit: int, offset: int) -> None:

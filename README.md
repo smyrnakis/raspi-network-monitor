@@ -13,6 +13,7 @@ V1 is running on a Raspberry Pi 4 and includes:
 - Confirmed incidents with failure and recovery thresholds.
 - Monitoring-gap and clock-trust detection.
 - Availability timeline, windowed MTBF, and ping-latency chart.
+- Independent OpenVPN-client monitoring with compact service cards and history.
 - Detailed filtered history, CSV export, and printable PDF reports.
 - Runtime settings, retention, SQLite backups, and health checks.
 - Native `systemd` services with a dedicated unprivileged user.
@@ -70,6 +71,13 @@ Review these settings before installation:
 | `dashboard.mtbf_minimum_incident_minutes` | `1` | Excludes briefer incidents from MTBF only |
 | `dashboard.default_timeline_window` | `24h` | Initial Timeline window |
 | `dashboard.default_latency_window` | `1h` | Initial Ping latency window |
+
+Optional `[[service_monitors]]` entries track services independently from
+native internet availability. The first supported kind is `openvpn_client`.
+It can verify tunnel reachability through a private endpoint and can also read
+an OpenVPN server status file when that file is safely readable by the monitor
+account. Deployment-specific client identities and tunnel addresses must stay
+in the local configuration.
 
 The failure threshold is three rounds and recovery threshold is two rounds by
 default. At a 10-second interval, confirmation normally takes about 30 seconds;

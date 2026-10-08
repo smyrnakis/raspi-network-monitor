@@ -175,6 +175,7 @@ function payloadFromForm() {
         document.querySelector("#default-latency-window").value,
     },
     probes,
+    service_monitors: settings.service_monitors,
   };
 }
 

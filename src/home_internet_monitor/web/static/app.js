@@ -56,6 +56,10 @@ const elements = {
   statusHeading: document.querySelector("#current-status-heading"),
   lastCheck: document.querySelector("#last-check"),
   componentGrid: document.querySelector("#component-grid"),
+  statusServices: document.querySelector("#status-service-summary"),
+  statusServiceList: document.querySelector("#status-service-list"),
+  servicesSection: document.querySelector("#services-section"),
+  serviceGrid: document.querySelector("#service-card-grid"),
   runTest: document.querySelector("#run-test"),
   availability: document.querySelector("#availability-value"),
   coverage: document.querySelector("#coverage-value"),
@@ -117,9 +121,10 @@ function rangeQuery(range) {
 }
 
 async function loadOverview() {
-  const [status, health] = await Promise.all([
+  const [status, health, services] = await Promise.all([
     api("/api/v1/status"),
     api("/api/v1/health"),
+    api("/api/v1/services"),
   ]);
   const minimumDuration = status.dashboard?.hide_short_incidents ? 60 : 0;
   const [incidents, gaps] = await Promise.all([
@@ -130,8 +135,164 @@ async function loadOverview() {
   applyDashboardPreferences(status.dashboard);
   renderStatus(status);
   renderHealth(health);
+  await renderServices(services.items);
   renderIncidents(incidents.items);
   renderGaps(gaps.items);
+}
+
+async function renderServices(items) {
+  const visible = items.filter((item) => item.dashboard !== "hidden");
+  renderStatusServices(visible);
+  elements.servicesSection.hidden = visible.length === 0;
+  if (!visible.length) {
+    elements.serviceGrid.replaceChildren();
+    return;
+  }
+  const end = new Date();
+  const start = new Date(end.getTime() - 7 * 86400 * 1000);
+  const cards = await Promise.all(visible.map(async (item) => {
+    let timeline = { segments: [] };
+    try {
+      timeline = await api(
+        `/api/v1/services/${encodeURIComponent(item.id)}/timeline?` +
+        rangeQuery({ start, end }),
+      );
+    } catch (_error) {
+      // Keep the summary card useful when its history query is unavailable.
+    }
+    return serviceCard(item, timeline);
+  }));
+  elements.serviceGrid.replaceChildren(...cards);
+}
+
+function renderStatusServices(items) {
+  elements.statusServices.hidden = items.length === 0;
+  const priority = { up: 0, unknown: 1, degraded: 2, down: 3 };
+  elements.statusServices.dataset.status = items.reduce(
+    (worst, item) => (priority[item.status] > priority[worst] ? item.status : worst),
+    "up",
+  );
+  elements.statusServiceList.replaceChildren(...items.map((item) => {
+    const link = document.createElement("a");
+    link.className = "status-service-item";
+    link.dataset.status = item.status;
+    link.href = `/service?id=${encodeURIComponent(item.id)}`;
+    link.setAttribute("aria-label", `${item.label}: ${serviceStatusLabel(item.status)}`);
+    const dot = document.createElement("i");
+    dot.setAttribute("aria-hidden", "true");
+    const text = document.createElement("span");
+    text.append(
+      textNode("status-service-name", item.label),
+      textNode("status-service-state", serviceStatusLabel(item.status)),
+    );
+    link.append(dot, text);
+    return link;
+  }));
+}
+
+function serviceCard(item, timeline) {
+  const link = document.createElement("a");
+  link.className = "service-card";
+  link.dataset.display = item.dashboard;
+  link.href = `/service?id=${encodeURIComponent(item.id)}`;
+  const heading = document.createElement("div");
+  heading.className = "service-card-heading";
+  const title = textNode("service-card-title", item.label);
+  const kind = textNode("service-card-kind", "OpenVPN client");
+  heading.append(title, kind);
+  const stateRow = document.createElement("div");
+  stateRow.className = "service-card-state";
+  stateRow.dataset.status = item.status;
+  const dot = document.createElement("i");
+  dot.setAttribute("aria-hidden", "true");
+  const stateText = document.createElement("span");
+  stateText.append(
+    textNode("service-state-label", serviceStatusLabel(item.status)),
+    textNode(
+      "service-last-check",
+      item.last_checked ? `Checked ${relativeTime(item.last_checked)}` : "Not checked yet",
+    ),
+  );
+  stateRow.append(dot, stateText);
+  const stats = document.createElement("div");
+  stats.className = "service-card-stats";
+  const availability = document.createElement("span");
+  availability.append(
+    textNode("service-stat-label", "Availability · monitored time"),
+    textNode(
+      "service-stat-value",
+      item.availability_7d === null ? "No data" : formatPercent(item.availability_7d),
+    ),
+  );
+  const incident = document.createElement("span");
+  incident.append(
+    textNode("service-stat-label", "Last incident"),
+    textNode(
+      "service-stat-value",
+      item.last_incident ? formatIncidentDateTime(item.last_incident.start) : "None",
+    ),
+  );
+  stats.append(availability, incident);
+  const timelineMeta = document.createElement("div");
+  timelineMeta.className = "service-mini-timeline-meta";
+  timelineMeta.append(
+    textNode("service-mini-timeline-label", "Status history · 7 days"),
+    textNode(
+      "service-mini-timeline-coverage",
+      `${formatPercent(item.coverage_7d)} monitored`,
+    ),
+  );
+  const track = document.createElement("div");
+  track.className = "service-mini-timeline";
+  track.setAttribute("role", "img");
+  track.setAttribute("aria-label", "Service status during the last seven days");
+  track.setAttribute("title", "Striped sections have no monitoring data");
+  renderServiceMiniTimeline(track, timeline.segments || [], startOfTimeline(timeline), endOfTimeline(timeline));
+  const timelineAxis = document.createElement("div");
+  timelineAxis.className = "service-mini-timeline-axis";
+  timelineAxis.append(textNode("", "7 days ago"), textNode("", "Now"));
+  link.append(heading, stateRow, stats, timelineMeta, track, timelineAxis);
+  return link;
+}
+
+function renderServiceMiniTimeline(track, segments, start, end) {
+  const count = 28;
+  const duration = Math.max(1, end - start);
+  for (let index = 0; index < count; index += 1) {
+    const bucketStart = start + duration * index / count;
+    const bucketEnd = start + duration * (index + 1) / count;
+    const overlaps = { up: 0, degraded: 0, down: 0, unknown: 0 };
+    segments.forEach((segment) => {
+      const overlap = Math.max(0, Math.min(bucketEnd, new Date(segment.end).getTime()) -
+        Math.max(bucketStart, new Date(segment.start).getTime()));
+      overlaps[segment.status] = (overlaps[segment.status] || 0) + overlap;
+    });
+    const status = Object.entries(overlaps).sort((a, b) => b[1] - a[1])[0][1] > 0
+      ? Object.entries(overlaps).sort((a, b) => b[1] - a[1])[0][0]
+      : "unknown";
+    const node = document.createElement("i");
+    node.dataset.status = status;
+    track.appendChild(node);
+  }
+}
+
+function startOfTimeline(payload) {
+  return payload.start ? new Date(payload.start).getTime() : Date.now() - 7 * 86400 * 1000;
+}
+
+function endOfTimeline(payload) {
+  return payload.end ? new Date(payload.end).getTime() : Date.now();
+}
+
+function serviceStatusLabel(status) {
+  return ({ up: "Connected", degraded: "Degraded", down: "Disconnected", unknown: "Unknown" })[status] || "Unknown";
+}
+
+function relativeTime(value) {
+  const seconds = Math.max(0, (Date.now() - new Date(value).getTime()) / 1000);
+  if (seconds < 60) return `${Math.floor(seconds)}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  return `${Math.floor(seconds / 3600)}h ago`;
 }
 
 function applyDashboardPreferences(dashboard = {}) {
@@ -843,6 +1004,8 @@ function formatIncidentRange(startValue, endValue) {
 }
 
 function formatIncidentDateTime(value) {
+  const date = validDate(value);
+  if (!date) return "Unknown time";
   return new Intl.DateTimeFormat("en-GB", {
     timeZone: state.timezone,
     day: "numeric",
@@ -851,25 +1014,34 @@ function formatIncidentDateTime(value) {
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
-  }).format(value);
+  }).format(date);
 }
 
 function formatIncidentTime(value) {
+  const date = validDate(value);
+  if (!date) return "Unknown time";
   return new Intl.DateTimeFormat("en-GB", {
     timeZone: state.timezone,
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
-  }).format(value);
+  }).format(date);
 }
 
 function localDayKey(value) {
+  const date = validDate(value);
+  if (!date) return "";
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: state.timezone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(value);
+  }).format(date);
+}
+
+function validDate(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isFinite(date.getTime()) ? date : null;
 }
 
 function formatKnownTime(seconds) {
@@ -895,12 +1067,14 @@ function formatMetricDuration(seconds) {
 }
 
 function formatDate(value, includeSeconds = false) {
+  const date = validDate(value);
+  if (!date) return "Unknown time";
   const options = {
     timeZone: state.timezone,
     dateStyle: "medium",
     timeStyle: includeSeconds ? "medium" : "short",
   };
-  return new Intl.DateTimeFormat(undefined, options).format(new Date(value));
+  return new Intl.DateTimeFormat(undefined, options).format(date);
 }
 
 function localInputValue(date) {

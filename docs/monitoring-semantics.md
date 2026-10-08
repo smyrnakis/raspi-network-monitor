@@ -102,8 +102,8 @@ satisfy the configured route policy.
 - A route change is diagnostic metadata and triggers revalidation.
 - If the intended route cannot be established, the monitor reports
   `MONITORING_UNKNOWN` rather than claiming an outage.
-- A future VPN-specific probe must be a separate category and cannot contribute
-  to native-WAN classification.
+- VPN and other service-specific probes are separate monitors and cannot
+  contribute to native-WAN classification.
 
 ## 5. Round classification
 

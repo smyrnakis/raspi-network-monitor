@@ -95,6 +95,41 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ConfigError, "default timeline window"):
             parse_config(raw)
 
+    def test_accepts_openvpn_service_monitor(self):
+        raw = valid_config()
+        raw["service_monitors"] = [
+            {
+                "id": "remote_vpn",
+                "label": "Remote VPN client",
+                "kind": "openvpn_client",
+                "endpoint": "10.8.0.2",
+                "interval_seconds": 20,
+                "timeout_seconds": 3,
+                "dashboard": "compact",
+            }
+        ]
+        monitor = parse_config(raw).service_monitors[0]
+        self.assertEqual("remote_vpn", monitor.monitor_id)
+        self.assertEqual("10.8.0.2", monitor.endpoint)
+        self.assertEqual("compact", monitor.dashboard)
+
+    def test_openvpn_service_monitor_requires_private_evidence(self):
+        raw = valid_config()
+        raw["service_monitors"] = [
+            {
+                "id": "remote_vpn",
+                "label": "Remote VPN client",
+                "kind": "openvpn_client",
+                "endpoint": "8.8.8.8",
+            }
+        ]
+        with self.assertRaisesRegex(ConfigError, "private IP"):
+            parse_config(raw)
+
+        raw["service_monitors"][0].pop("endpoint")
+        with self.assertRaisesRegex(ConfigError, "requires endpoint"):
+            parse_config(raw)
+
         raw = valid_config()
         raw["dashboard"] = {"mtbf_minimum_incident_minutes": -1}
         with self.assertRaisesRegex(ConfigError, "MTBF minimum incident duration"):

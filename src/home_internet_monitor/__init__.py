@@ -1,3 +1,3 @@
 """Raspberry Pi Network Monitor."""
 
-__version__ = "0.4.18"
+__version__ = "0.5.5"

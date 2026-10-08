@@ -10,7 +10,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Sequence
 
-from home_internet_monitor.storage import MonitoringRepository, connect_database, migrate
+from home_internet_monitor.storage import (
+    MonitoringRepository,
+    ServiceMonitorRepository,
+    connect_database,
+    migrate,
+)
 
 from .config import AppConfig, load_config
 from .clock import ClockTrustMonitor
@@ -18,6 +23,7 @@ from .rounds import RoundExecutor
 from .routing import LinuxRouteInspector
 from .scheduler import NonOverlappingScheduler
 from .service import MonitorService
+from .service_monitors import ServiceMonitorRunner
 from .settings import RuntimeSettingsStore
 
 LOGGER = logging.getLogger(__name__)
@@ -70,6 +76,12 @@ async def run_worker(
         )
         prepared_at = datetime.now(timezone.utc)
         service.prepare(prepared_at)
+        service_monitor_runner = ServiceMonitorRunner(
+            config.site.site_id,
+            config.service_monitors,
+            ServiceMonitorRepository(connection),
+        )
+        service_monitor_runner.prepare(prepared_at)
         _apply_retention(repository, config, prepared_at)
         next_retention_at = prepared_at + _RETENTION_INTERVAL
         clock = ClockTrustMonitor()
@@ -91,6 +103,14 @@ async def run_worker(
                 stored.inserted,
             )
             now = datetime.now(timezone.utc)
+            try:
+                checked_services = await service_monitor_runner.run_due(now)
+                if checked_services:
+                    LOGGER.info("service checks completed count=%d", checked_services)
+            except Exception:
+                LOGGER.exception(
+                    "service checks failed; native internet monitoring will continue"
+                )
             if now >= next_retention_at:
                 _apply_retention(repository, config, now)
                 next_retention_at = now + _RETENTION_INTERVAL

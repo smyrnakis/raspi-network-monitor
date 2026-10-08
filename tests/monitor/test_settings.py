@@ -13,6 +13,18 @@ def base_config(directory: Path):
             "site": {"id": "home", "display_name": "Home", "timezone": "UTC"},
             "storage": {"database_path": str((directory / "monitor.db").resolve())},
             "monitor": {"interval_seconds": 10, "round_timeout_seconds": 8},
+            "service_monitors": [
+                {
+                    "id": "remote_vpn",
+                    "label": "Remote VPN",
+                    "kind": "openvpn_client",
+                    "endpoint": "10.8.0.2",
+                    "interval_seconds": 20,
+                    "timeout_seconds": 3,
+                    "failure_threshold": 3,
+                    "recovery_threshold": 2,
+                }
+            ],
             "probes": [
                 {"id": "gw", "kind": "gateway", "endpoint": "auto"},
                 {"id": "ip1", "kind": "external_ip", "endpoint": "1.1.1.1"},
@@ -44,6 +56,9 @@ class RuntimeSettingsTests(unittest.TestCase):
         payload["dashboard"]["mtbf_minimum_incident_minutes"] = 5
         payload["dashboard"]["default_timeline_window"] = "7d"
         payload["dashboard"]["default_latency_window"] = "24h"
+        payload["service_monitors"][0]["interval_seconds"] = 30
+        payload["service_monitors"][0]["failure_threshold"] = 4
+        payload["service_monitors"][0]["dashboard"] = "detailed"
 
         saved = self.store.save(payload)
 
@@ -58,6 +73,9 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(5, effective.dashboard.mtbf_minimum_incident_minutes)
         self.assertEqual("7d", effective.dashboard.default_timeline_window)
         self.assertEqual("24h", effective.dashboard.default_latency_window)
+        self.assertEqual(30, effective.service_monitors[0].interval_seconds)
+        self.assertEqual(4, effective.service_monitors[0].failure_threshold)
+        self.assertEqual("detailed", effective.service_monitors[0].dashboard)
         self.assertTrue(self.store.consume_restart_request())
         self.assertFalse(self.store.consume_restart_request())
 
@@ -84,10 +102,23 @@ class RuntimeSettingsTests(unittest.TestCase):
         with self.assertRaisesRegex(ConfigError, "at least 2 enabled external_ip"):
             self.store.save(payload)
 
+        payload = self.store.read()
+        payload["service_monitors"][0]["kind"] = "https"
+        with self.assertRaisesRegex(ConfigError, "service monitor kind cannot be changed"):
+            self.store.save(payload)
+
+        payload = self.store.read()
+        payload["service_monitors"][0]["endpoint"] = None
+        payload["service_monitors"][0]["status_file"] = None
+        payload["service_monitors"][0]["client_name"] = None
+        with self.assertRaisesRegex(ConfigError, "requires endpoint"):
+            self.store.save(payload)
+
     def test_settings_from_older_release_without_retention_still_load(self):
         payload = self.store.read()
         del payload["retention"]
         del payload["dashboard"]
+        del payload["service_monitors"]
         self.store.path.parent.mkdir(parents=True)
         self.store.path.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -99,6 +130,7 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(1, effective.dashboard.mtbf_minimum_incident_minutes)
         self.assertEqual("24h", effective.dashboard.default_timeline_window)
         self.assertEqual("1h", effective.dashboard.default_latency_window)
+        self.assertEqual("10.8.0.2", effective.service_monitors[0].endpoint)
 
 
 if __name__ == "__main__":

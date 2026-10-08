@@ -3,14 +3,18 @@ import importlib.util
 import json
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
 from home_internet_monitor.domain.models import ComponentStatus, RoundEvidence, RoundStatus
 from home_internet_monitor.monitor.models import CompletedRound
-from home_internet_monitor.monitor.config import parse_config
-from home_internet_monitor.storage import connect_database, migrate
+from home_internet_monitor.monitor.config import ServiceMonitorConfig, parse_config
+from home_internet_monitor.storage import (
+    ServiceMonitorRepository,
+    connect_database,
+    migrate,
+)
 
 FASTAPI_AVAILABLE = importlib.util.find_spec("fastapi") is not None
 
@@ -84,6 +88,16 @@ class AppTests(unittest.TestCase):
             {
                 "site": {"id": "home", "display_name": "Home", "timezone": "UTC"},
                 "storage": {"database_path": str(self.path.resolve())},
+                "service_monitors": [
+                    {
+                        "id": "remote_vpn",
+                        "label": "Remote VPN",
+                        "kind": "openvpn_client",
+                        "endpoint": "10.8.0.2",
+                        "interval_seconds": 20,
+                        "timeout_seconds": 3,
+                    }
+                ],
                 "probes": [
                     {"id": "gw", "kind": "gateway", "endpoint": "auto"},
                     {"id": "ip1", "kind": "external_ip", "endpoint": "1.1.1.1"},
@@ -107,7 +121,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual("home", payload["site"]["site_id"])
         self.assertEqual("monitoring_unknown", payload["stable_status"])
         self.assertTrue(payload["hostname"])
-        self.assertEqual("0.4.18", payload["version"])
+        self.assertEqual("0.5.5", payload["version"])
         self.assertTrue(payload["dashboard"]["hide_short_incidents"])
         self.assertEqual(1, payload["dashboard"]["mtbf_minimum_incident_minutes"])
         self.assertEqual("24h", payload["dashboard"]["default_timeline_window"])
@@ -123,6 +137,49 @@ class AppTests(unittest.TestCase):
         )
         self.assertEqual(400, status)
         self.assertIn("end must be after start", json.loads(body)["detail"])
+
+    def test_service_summary_and_timeline_routes(self):
+        connection = connect_database(self.path)
+        repository = ServiceMonitorRepository(connection)
+        monitor = ServiceMonitorConfig(
+            "remote_vpn", "Remote VPN", "openvpn_client", "10.8.0.2", None, None,
+            failure_threshold=1, recovery_threshold=1,
+        )
+        now = datetime.now(timezone.utc) - timedelta(seconds=5)
+        repository.prepare("home", (monitor,), now)
+        repository.record_observation(monitor, now, "up", latency_ms=22.5)
+        repository.record_observation(
+            monitor,
+            now + timedelta(seconds=1),
+            "down",
+            error_class="icmp_timeout",
+        )
+        repository.record_observation(
+            monitor,
+            now + timedelta(seconds=2),
+            "up",
+            latency_ms=21.0,
+        )
+        connection.close()
+
+        status, _, body = asyncio.run(request(self.app, "/api/v1/services"))
+        self.assertEqual(200, status)
+        payload = json.loads(body)
+        self.assertEqual("remote_vpn", payload["items"][0]["id"])
+        self.assertEqual("up", payload["items"][0]["status"])
+        self.assertEqual("closed", payload["items"][0]["last_incident"]["lifecycle"])
+        self.assertIsNotNone(payload["items"][0]["last_incident"]["confirmed_start"])
+        self.assertEqual("recovered", payload["items"][0]["last_incident"]["end_reason"])
+
+        query = (
+            b"start=2026-01-01T00%3A00%3A00%2B00%3A00&"
+            b"end=2027-01-01T00%3A00%3A00%2B00%3A00"
+        )
+        status, _, body = asyncio.run(
+            request(self.app, "/api/v1/services/remote_vpn/timeline", query)
+        )
+        self.assertEqual(200, status)
+        self.assertTrue(json.loads(body)["segments"])
 
     def test_csv_route_sets_attachment_and_contains_header(self):
         status, headers, body = asyncio.run(
@@ -161,6 +218,8 @@ class AppTests(unittest.TestCase):
         self.assertNotIn(b"unknown-value", body)
         self.assertNotIn(b"Download CSV", body)
         self.assertEqual(2, body.count(b">Detailed history<"))
+        self.assertIn(b'id="status-service-summary"', body)
+        self.assertGreater(body.find(b'id="services-section"'), body.find(b'id="gaps-heading"'))
 
         status, headers, body = asyncio.run(request(self.app, "/assets/app.js"))
         self.assertEqual(200, status)
@@ -170,6 +229,8 @@ class AppTests(unittest.TestCase):
         self.assertIn(b"renderTimelineIncidents", body)
         self.assertIn(b"incidentDescription", body)
         self.assertIn(b"formatIncidentRange", body)
+        self.assertIn(b"function validDate(value)", body)
+        self.assertIn(b'if (!date) return "Unknown time"', body)
         self.assertIn(b"INCIDENT_TAG_LABELS", body)
         self.assertIn(b"IMPAIRED_STATUSES", body)
         self.assertIn(b"impairmentColor", body)
@@ -181,10 +242,32 @@ class AppTests(unittest.TestCase):
         self.assertIn(b"formatMetricDuration", body)
         self.assertIn(b"applyDashboardPreferences", body)
         self.assertIn(b"latency-incident", body)
+        self.assertIn(b"renderStatusServices", body)
+        self.assertIn(b"link.dataset.display = item.dashboard", body)
         self.assertIn(b'/api/v1/incidents?limit=5', body)
         self.assertIn(b'/api/v1/gaps?limit=5', body)
         self.assertEqual(2, body.count(b"minimum_duration_seconds=${minimumDuration}"))
         self.assertIn(b"focus_type=incident", body)
+
+        status, headers, body = asyncio.run(request(self.app, "/service"))
+        self.assertEqual(200, status)
+        self.assertIn(b"text/html", headers[b"content-type"])
+        self.assertIn(b'class="window-button service-window"', body)
+        self.assertIn(b"Striped time has no monitoring data", body)
+        self.assertIn(b'id="service-availability-note"', body)
+        self.assertIn(b'id="service-settings-form"', body)
+        self.assertIn(b"Detection methods", body)
+        self.assertIn(b"Confirm disconnection after", body)
+
+        status, headers, body = asyncio.run(request(self.app, "/assets/service.js"))
+        self.assertEqual(200, status)
+        self.assertIn(b"javascript", headers[b"content-type"])
+        self.assertIn(b"fillTimelineGaps", body)
+        self.assertIn(b"of selected window monitored", body)
+        self.assertIn(b"incidentCard", body)
+        self.assertIn(b"detectionDescription", body)
+        self.assertIn(b"thresholdForSeconds", body)
+        self.assertIn(b'api("/api/v1/settings"', body)
 
         status, headers, body = asyncio.run(request(self.app, "/settings"))
         self.assertEqual(200, status)
@@ -207,6 +290,7 @@ class AppTests(unittest.TestCase):
         self.assertIn(b"mtbf_minimum_incident_minutes", body)
         self.assertIn(b"default_timeline_window", body)
         self.assertIn(b"default_latency_window", body)
+        self.assertIn(b"service_monitors: settings.service_monitors", body)
 
         status, headers, body = asyncio.run(request(self.app, "/assets/theme.js"))
         self.assertEqual(200, status)
@@ -222,6 +306,12 @@ class AppTests(unittest.TestCase):
         self.assertIn(b'"metrics latency"', body)
         self.assertIn(b'"timeline timeline"', body)
         self.assertIn(b"border-bottom: 0.5pt solid #b8c6bf", body)
+        self.assertIn(b".status-service-item > i", body)
+        self.assertIn(b"indicator-breathe 1.8s", body)
+        self.assertIn(b".status-service-item > span", body)
+        self.assertIn(b"display: contents", body)
+        self.assertIn(b".service-incident-facts", body)
+        self.assertIn(b".service-settings-group", body)
 
         status, headers, body = asyncio.run(request(self.app, "/history"))
         self.assertEqual(200, status)

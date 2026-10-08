@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
     <title>Network monitor</title>
-    <script src="/assets/theme.js?v=0.4.18"></script>
-    <link rel="stylesheet" href="/assets/styles.css?v=0.4.18">
-    <script src="/assets/app.js?v=0.4.18" defer></script>
+    <script src="/assets/theme.js?v=0.5.5"></script>
+    <link rel="stylesheet" href="/assets/styles.css?v=0.5.5">
+    <script src="/assets/app.js?v=0.5.5" defer></script>
   </head>
   <body>
     <header class="topbar">
@@ -63,6 +63,11 @@
             <span><i class="component-dot" aria-hidden="true"></i>HTTPS</span><strong>Unknown</strong>
           </li>
         </ul>
+
+        <div class="status-service-summary" id="status-service-summary" data-status="unknown" hidden>
+          <span class="status-service-heading">Services</span>
+          <div class="status-service-list" id="status-service-list" aria-label="Independent service status"></div>
+        </div>
       </section>
 
       <section class="card availability-section" aria-labelledby="availability-heading">
@@ -173,6 +178,16 @@
           </div>
         </section>
       </div>
+
+      <section class="services-section" id="services-section" aria-labelledby="services-heading" hidden>
+        <div class="section-header services-header">
+          <div>
+            <h2 id="services-heading">Services</h2>
+            <p class="section-note">Independent checks, separate from internet availability.</p>
+          </div>
+        </div>
+        <div class="service-card-grid" id="service-card-grid"></div>
+      </section>
     </main>
 
     <footer class="shell footer">
