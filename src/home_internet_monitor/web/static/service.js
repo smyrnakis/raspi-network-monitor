@@ -172,8 +172,14 @@ function incidentCard(item) {
   const icon = document.createElement("i");
   icon.setAttribute("aria-hidden", "true");
   const title = document.createElement("strong");
-  title.textContent = item.status === "down" ? "VPN disconnected" : "VPN degraded";
-  identity.append(icon, title);
+  title.textContent = item.status === "down" ? "VPN down" : "VPN degraded";
+  const duration = document.createElement("span");
+  duration.className = "service-incident-duration";
+  duration.textContent = formatDuration(item.duration_seconds === null
+    ? Math.max(0, (Date.now() - new Date(item.start).getTime()) / 1000)
+    : item.duration_seconds);
+  duration.setAttribute("aria-label", `${item.lifecycle === "open" ? "Elapsed" : "Duration"}: ${duration.textContent}`);
+  identity.append(icon, title, duration);
   const lifecycle = document.createElement("span");
   lifecycle.className = "service-incident-lifecycle";
   lifecycle.dataset.lifecycle = item.lifecycle;
@@ -191,23 +197,16 @@ function incidentCard(item) {
   const facts = document.createElement("dl");
   facts.className = "service-incident-facts";
   facts.append(
-    incidentFact("First detected", formatDate(item.start, true)),
     incidentFact(
-      "Incident confirmed",
+      "Incident started",
       confirmationLabel(item.start, item.confirmed_start),
     ),
     incidentFact(
-      item.lifecycle === "open" ? "Elapsed" : "Disruption",
-      item.duration_seconds === null
-        ? formatDuration((Date.now() - new Date(item.start).getTime()) / 1000)
-        : formatDuration(item.duration_seconds),
-    ),
-    incidentFact(
       "Connection restored",
-      item.end ? recoveryLabel(item.end, item.confirmed_end) : "Not yet restored",
+      item.end ? confirmationLabel(item.end, item.confirmed_end) : "Not yet restored",
     ),
   );
-  card.append(header, evidence, facts);
+  card.append(header, facts, evidence);
   return card;
 }
 
@@ -247,15 +246,9 @@ function detectionDescription(errorClass) {
 }
 
 function confirmationLabel(observed, confirmed) {
-  if (!confirmed) return "Not yet confirmed";
+  if (!confirmed) return `${formatDate(observed, true)} (Not yet confirmed)`;
   const delay = Math.max(0, (new Date(confirmed) - new Date(observed)) / 1000);
-  return `${formatDate(confirmed, true)} · after ${formatDuration(delay)}`;
-}
-
-function recoveryLabel(restored, confirmed) {
-  if (!confirmed) return formatDate(restored, true);
-  const delay = Math.max(0, (new Date(confirmed) - new Date(restored)) / 1000);
-  return `${formatDate(restored, true)} · confirmed after ${formatDuration(delay)}`;
+  return `${formatDate(observed, true)} (Confirmed after: ${Math.round(delay)}s)`;
 }
 
 function renderSettings(item) {

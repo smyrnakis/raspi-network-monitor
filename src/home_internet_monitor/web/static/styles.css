@@ -325,17 +325,19 @@ a {
 }
 
 .component-dot {
+  --component-color: var(--unknown);
   width: 10px;
   height: 10px;
   flex: 0 0 auto;
   border-radius: 50%;
-  background: var(--unknown);
+  background: var(--component-color);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--component-color) 14%, transparent);
 }
 
-.component-list li[data-status="reachable"] .component-dot { background: #55d69c; }
-.component-list li[data-status="unreachable"] .component-dot { background: #ff7777; }
-.component-list li[data-status="not_applicable"] .component-dot { background: #aeb8b2; }
-.status-panel[data-testing="true"] .component-dot { background: #68a9ff; }
+.component-list li[data-status="reachable"] .component-dot { --component-color: #55d69c; }
+.component-list li[data-status="unreachable"] .component-dot { --component-color: #ff7777; }
+.component-list li[data-status="not_applicable"] .component-dot { --component-color: #aeb8b2; }
+.status-panel[data-testing="true"] .component-dot { --component-color: #68a9ff; }
 
 .status-service-summary {
   display: flex;
@@ -1639,6 +1641,7 @@ a.event-row:focus-visible {
 }
 
 .services-section {
+  margin-top: 32px;
   padding: 2px 0;
 }
 
@@ -1648,7 +1651,7 @@ a.event-row:focus-visible {
 
 .services-header h2 {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 1.3rem;
 }
 
 .service-card-grid {
@@ -1906,8 +1909,15 @@ a.event-row:focus-visible {
   gap: 16px;
 }
 
-.service-incident-identity { gap: 10px; }
+.service-incident-identity { gap: 10px; flex-wrap: wrap; }
 .service-incident-identity strong { font-size: 0.98rem; }
+
+.service-incident-duration {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
 
 .service-incident-identity i {
   width: 10px;
@@ -1940,7 +1950,7 @@ a.event-row:focus-visible {
 }
 
 .service-incident-evidence {
-  margin: 16px 0;
+  margin: 16px 0 0;
   padding: 13px 14px;
   border-radius: 10px;
   background: var(--surface);
@@ -1958,9 +1968,9 @@ a.event-row:focus-visible {
 
 .service-incident-facts {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  margin: 0;
+  margin: 16px 0 0;
 }
 
 .service-incident-facts div {
@@ -2680,10 +2690,11 @@ a.event-row:focus-visible {
   .component-dot,
   .status-service-item > i,
   .service-card-state > i,
-  .service-detail-current > i {
+  .service-detail-current > i,
+  .service-incident-identity > i {
     transform-origin: center;
     will-change: opacity, transform;
-    animation: indicator-breathe 1.8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+    animation: indicator-breathe 1.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
   }
 
   @keyframes indicator-breathe {
