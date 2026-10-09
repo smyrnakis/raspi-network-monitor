@@ -79,6 +79,13 @@ an OpenVPN server status file when that file is safely readable by the monitor
 account. Deployment-specific client identities and tunnel addresses must stay
 in the local configuration.
 
+The service detail page uses one 1h, 24h, or 7d selector for the connection
+timeline and its compact live ping graph.
+Each service can save its default timespan in the service settings. The ping
+graph adjusts its vertical range to the observed successful averages.
+It collects scheduled ping samples from version 0.5.9 onward, uses the raw-sample
+retention setting, and leaves gaps where measurements are unavailable.
+
 The failure threshold is three rounds and recovery threshold is two rounds by
 default. At a 10-second interval, confirmation normally takes about 30 seconds;
 at 30 seconds, about 90 seconds. Probe and timeout delays can add to this.

@@ -299,6 +299,20 @@ MIGRATIONS: Sequence[Migration] = (
             """,
         ),
     ),
+    (
+        5,
+        (
+            """
+            CREATE TABLE service_ping_samples (
+                monitor_id TEXT NOT NULL REFERENCES service_monitors(monitor_id) ON DELETE CASCADE,
+                observed_at_ms INTEGER NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('up', 'degraded', 'down', 'unknown')),
+                latency_ms REAL CHECK (latency_ms IS NULL OR latency_ms >= 0),
+                PRIMARY KEY (monitor_id, observed_at_ms)
+            ) WITHOUT ROWID
+            """,
+        ),
+    ),
 )
 
 

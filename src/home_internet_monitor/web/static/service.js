@@ -3,6 +3,13 @@ const monitorId = params.get("id");
 let selectedWindow = "7d";
 let allSettings = null;
 let serviceSettings = null;
+let lastSummary = null;
+let manualResult = null;
+let checking = false;
+let loadSequence = 0;
+let activeLoads = 0;
+let pingPayload = null;
+let windowChosen = false;
 
 const elements = {
   error: document.querySelector("#service-error"),
@@ -18,6 +25,9 @@ const elements = {
   incidentTime: document.querySelector("#service-last-incident-time"),
   latency: document.querySelector("#service-latency"),
   timeline: document.querySelector("#service-detail-timeline"),
+  pingChart: document.querySelector("#service-ping-chart"),
+  pingEmpty: document.querySelector("#service-ping-empty"),
+  pingTooltip: document.querySelector("#service-ping-tooltip"),
   start: document.querySelector("#service-timeline-start"),
   end: document.querySelector("#service-timeline-end"),
   incidents: document.querySelector("#service-incident-list"),
@@ -36,10 +46,12 @@ const elements = {
   statusFile: document.querySelector("#service-status-file"),
   clientName: document.querySelector("#service-client-name"),
   dashboardMode: document.querySelector("#service-dashboard-mode"),
+  defaultWindow: document.querySelector("#service-default-window"),
 };
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
+    cache: "no-store",
     ...options,
     headers: { Accept: "application/json", ...(options.headers || {}) },
   });
@@ -52,39 +64,64 @@ async function api(path, options = {}) {
 }
 
 function range() {
-  const hours = { "24h": 24, "7d": 168, "30d": 720 }[selectedWindow];
+  const hours = { "1h": 1, "24h": 24, "7d": 168 }[selectedWindow];
   const end = new Date();
   return { start: new Date(end.getTime() - hours * 3600 * 1000), end };
 }
 
 async function load() {
   if (!monitorId) throw new Error("No service monitor was selected");
-  const selected = range();
-  const query = new URLSearchParams({ start: selected.start.toISOString(), end: selected.end.toISOString() });
-  const [summary, timeline, incidents, settings] = await Promise.all([
-    api(`/api/v1/services/${encodeURIComponent(monitorId)}`),
-    api(`/api/v1/services/${encodeURIComponent(monitorId)}/timeline?${query}`),
-    api(`/api/v1/services/${encodeURIComponent(monitorId)}/incidents?limit=20`),
-    api("/api/v1/settings"),
-  ]);
-  allSettings = settings;
-  serviceSettings = settings.service_monitors.find((item) => item.id === monitorId);
-  if (!serviceSettings) throw new Error("Service settings are unavailable");
-  renderSummary(summary);
-  renderTimeline(timeline);
-  renderIncidents(incidents.items);
-  renderSettings(serviceSettings);
-  elements.error.hidden = true;
+  const sequence = ++loadSequence;
+  activeLoads += 1;
+  try {
+    if (!serviceSettings) {
+      const settings = allSettings || await api("/api/v1/settings");
+      if (sequence !== loadSequence) return;
+      allSettings = settings;
+      serviceSettings = settings.service_monitors.find(item => item.id === monitorId);
+      if (!serviceSettings) throw new Error("Service settings are unavailable");
+      if (!windowChosen) selectWindow(serviceSettings.default_window || "7d");
+      renderSettings(serviceSettings);
+    }
+    const selected = range();
+    const query = new URLSearchParams({ start: selected.start.toISOString(), end: selected.end.toISOString() });
+    const pingQuery = new URLSearchParams({
+      start: selected.start.toISOString(),
+      end: selected.end.toISOString(),
+      bucket_seconds: { "1h": 60, "24h": 300, "7d": 1800 }[selectedWindow],
+    });
+    const [summary, timeline, incidents, ping] = await Promise.all([
+      api(`/api/v1/services/${encodeURIComponent(monitorId)}`),
+      api(`/api/v1/services/${encodeURIComponent(monitorId)}/timeline?${query}`),
+      api(`/api/v1/services/${encodeURIComponent(monitorId)}/incidents?limit=20`),
+      api(`/api/v1/services/${encodeURIComponent(monitorId)}/latency?${pingQuery}`),
+    ]);
+    if (sequence !== loadSequence) return;
+    lastSummary = summary;
+    if (manualResult && summary.last_checked && new Date(summary.last_checked) >= new Date(manualResult.last_checked)) {
+      manualResult = null;
+    }
+    renderSummary(summary);
+    renderTimeline(timeline);
+    renderIncidents(incidents.items);
+    pingPayload = ping;
+    renderPing(ping);
+    elements.error.hidden = true;
+  } finally {
+    activeLoads -= 1;
+  }
 }
 
 function renderSummary(item) {
   document.title = `${item.label} · Network monitor`;
   elements.name.textContent = item.label;
-  elements.current.dataset.status = item.status;
-  elements.status.textContent = statusLabel(item.status);
-  elements.checked.textContent = item.last_checked ? `Checked ${relativeTime(item.last_checked)}` : "Not checked yet";
+  const latest = manualResult || item;
+  elements.current.dataset.status = latest.status;
+  elements.status.textContent = statusLabel(latest.status);
+  elements.current.disabled = checking || !serviceSettings?.enabled;
+  elements.checked.textContent = checking ? "Checking..." : latest.last_checked ? `Checked ${relativeTime(latest.last_checked)}` : "Not checked yet";
   elements.duration.textContent = item.stable_since ? formatDuration((Date.now() - new Date(item.stable_since).getTime()) / 1000) : "No data";
-  elements.latency.textContent = item.last_latency_ms === null ? "No data" : `${Math.round(item.last_latency_ms)} ms`;
+  elements.latency.textContent = latest.last_latency_ms == null ? "No data" : `${Math.round(latest.last_latency_ms)} ms`;
   if (item.last_incident) {
     elements.incident.textContent = item.last_incident.duration_seconds === null ? "Ongoing" : formatDuration(item.last_incident.duration_seconds);
     elements.incidentTime.textContent = formatDate(item.last_incident.start, true);
@@ -126,6 +163,106 @@ function renderTimeline(payload) {
   );
 }
 
+function renderPing(payload) {
+  const chart = elements.pingChart;
+  chart.replaceChildren();
+  elements.pingTooltip.hidden = true;
+  const points = payload.points || [];
+  const hasData = points.some(point => point.avg_ms !== null || point.failure_count > 0);
+  chart.toggleAttribute("hidden", !hasData);
+  elements.pingEmpty.hidden = hasData;
+  if (!hasData) return;
+  const compact = window.matchMedia("(max-width: 540px)").matches;
+  const width = compact ? 420 : 900;
+  const height = compact ? 190 : 160;
+  const margin = { left: compact ? 66 : 54, right: 16, top: 16, bottom: 40 };
+  const plotWidth = width - margin.left - margin.right;
+  const plotHeight = height - margin.top - margin.bottom;
+  const start = new Date(payload.start).getTime();
+  const end = new Date(payload.end).getTime();
+  const {min: yMin, max: yMax} = pingAxisBounds(points);
+  chart.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  chart.dataset.compact = String(compact);
+  const svg = (name, attributes, text) => {
+    const node = document.createElementNS("http://www.w3.org/2000/svg", name);
+    Object.entries(attributes).forEach(([key, value]) => node.setAttribute(key, value));
+    if (text !== undefined) node.textContent = text;
+    return node;
+  };
+  const xAt = time => margin.left + (time - start) / (end - start) * plotWidth;
+  for (let index = 0; index <= 4; index += 1) {
+    const y = margin.top + plotHeight * index / 4;
+    chart.append(
+      svg("line", {x1: margin.left, x2: width - margin.right, y1: y, y2: y, class: "latency-grid-line"}),
+      svg("text", {x: margin.left - 9, y: y + 4, class: "latency-y-label", "text-anchor": "end"}, `${Math.round(yMax - (yMax - yMin) * index / 4)} ms`),
+    );
+  }
+  const ticks = compact ? 3 : 5;
+  for (let index = 0; index < ticks; index += 1) {
+    const time = start + (end - start) * index / (ticks - 1);
+    const options = selectedWindow === "1h" ? {hour: "2-digit", minute: "2-digit"} : {day: "numeric", month: "short", hour: "2-digit"};
+    chart.append(svg("text", {x: xAt(time), y: height - 8, class: "latency-x-label", "text-anchor": index === 0 ? "start" : index === ticks - 1 ? "end" : "middle"}, new Intl.DateTimeFormat(undefined, options).format(new Date(time))));
+  }
+  let group = [];
+  let previous = null;
+  const flush = () => {
+    if (group.length) chart.append(svg("polyline", {points: group.join(" "), class: "latency-line", stroke: "var(--online)"}));
+    group = [];
+  };
+  points.forEach(point => {
+    const time = new Date(point.start).getTime();
+    if (point.avg_ms === null || (previous !== null && time - previous > payload.bucket_seconds * 1750)) flush();
+    const x = xAt(Math.min(end - 1, time + payload.bucket_seconds * 500));
+    if (point.avg_ms !== null) {
+      const y = margin.top + plotHeight * (1 - (point.avg_ms - yMin) / (yMax - yMin));
+      group.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+      chart.append(svg("circle", {cx: x, cy: y, r: 2, fill: "var(--online)"}));
+    }
+    if (point.failure_count > 0) chart.append(svg("circle", {cx: x, cy: margin.top + plotHeight, r: 3, fill: "var(--down)"}));
+    previous = time;
+  });
+  flush();
+  const show = event => {
+    const rect = chart.getBoundingClientRect();
+    const x = (event.clientX - rect.left) / rect.width * width;
+    const time = start + (x - margin.left) / plotWidth * (end - start);
+    if (time < start || time >= end) { elements.pingTooltip.hidden = true; return; }
+    const bucketStart = start + Math.floor((time - start) / (payload.bucket_seconds * 1000)) * payload.bucket_seconds * 1000;
+    const point = points.find(item => new Date(item.start).getTime() === bucketStart);
+    const lines = [formatDate(new Date(bucketStart).toISOString(), true)];
+    if (point?.avg_ms != null) {
+      lines.push(`Average ${Math.round(point.avg_ms)} ms`, `Min ${Math.round(point.min_ms)} · max ${Math.round(point.max_ms)} ms`);
+    } else lines.push(point ? "No successful ping" : "No ping data");
+    if (point?.failure_count) lines.push(`${point.failure_count} failed ${point.failure_count === 1 ? "check" : "checks"}`);
+    elements.pingTooltip.replaceChildren(...lines.map(text => {
+      const node = document.createElement("span"); node.textContent = text; return node;
+    }));
+    const wrap = chart.parentElement.getBoundingClientRect();
+    elements.pingTooltip.style.setProperty("--latency-tooltip-left", `${event.clientX - wrap.left}px`);
+    elements.pingTooltip.style.setProperty("--latency-tooltip-top", `${Math.max(110, event.clientY - wrap.top)}px`);
+    elements.pingTooltip.hidden = false;
+  };
+  chart.onpointerdown = show;
+  chart.onpointermove = show;
+  chart.onpointerleave = () => { elements.pingTooltip.hidden = true; };
+  chart.onpointercancel = chart.onpointerleave;
+  chart.onpointerup = () => { setTimeout(chart.onpointerleave, 1500); };
+}
+
+function pingAxisBounds(points) {
+  const values = points.map(point => point.avg_ms).filter(value => value !== null && Number.isFinite(value));
+  if (!values.length) return {min: 0, max: 100};
+  const low = Math.min(...values);
+  const high = Math.max(...values);
+  const span = Math.max(60, (high - low) * 1.6);
+  const step = 10 ** Math.floor(Math.log10(span / 6));
+  const center = (low + high) / 2;
+  return {
+    min: Math.max(0, Math.floor((center - span / 2) / step) * step),
+    max: Math.ceil((center + span / 2) / step) * step,
+  };
+}
+
 function fillTimelineGaps(segments, start, end) {
   const result = [];
   let cursor = start;
@@ -149,7 +286,7 @@ function fillTimelineGaps(segments, start, end) {
 }
 
 function windowLabel(value) {
-  return ({ "24h": "24 hours", "7d": "7 days", "30d": "30 days" })[value] || value;
+  return ({ "1h": "1 hour", "24h": "24 hours", "7d": "7 days" })[value] || value;
 }
 
 function renderIncidents(items) {
@@ -215,7 +352,7 @@ function incidentFact(label, value) {
   const term = document.createElement("dt");
   term.textContent = label;
   const description = document.createElement("dd");
-  description.textContent = value;
+  description.append(value);
   wrapper.append(term, description);
   return wrapper;
 }
@@ -246,9 +383,17 @@ function detectionDescription(errorClass) {
 }
 
 function confirmationLabel(observed, confirmed) {
-  if (!confirmed) return `${formatDate(observed, true)} (Not yet confirmed)`;
-  const delay = Math.max(0, (new Date(confirmed) - new Date(observed)) / 1000);
-  return `${formatDate(observed, true)} (Confirmed after: ${Math.round(delay)}s)`;
+  const value = document.createDocumentFragment();
+  const note = document.createElement("span");
+  note.className = "service-incident-confirmation";
+  if (confirmed) {
+    const delay = Math.max(0, (new Date(confirmed) - new Date(observed)) / 1000);
+    note.textContent = `(Confirmed after: ${Math.round(delay)}s)`;
+  } else {
+    note.textContent = "(Not yet confirmed)";
+  }
+  value.append(`${formatDate(observed, true)} `, note);
+  return value;
 }
 
 function renderSettings(item) {
@@ -268,6 +413,7 @@ function renderSettings(item) {
   elements.statusFile.value = item.status_file || "";
   elements.clientName.value = item.client_name || "";
   elements.dashboardMode.value = item.dashboard;
+  elements.defaultWindow.value = item.default_window || "7d";
   updateMethodState();
   updateThresholdNotes();
   elements.saveSettings.disabled = false;
@@ -336,16 +482,25 @@ function formatDate(value, seconds = false) {
   }).format(new Date(value));
 }
 
+function selectWindow(value) {
+  selectedWindow = value;
+  document.querySelectorAll(".service-window").forEach(item => {
+    const active = item.dataset.window === value;
+    item.classList.toggle("active", active);
+    item.setAttribute("aria-pressed", String(active));
+  });
+}
+
 document.querySelectorAll(".service-window").forEach((button) => {
   button.addEventListener("click", () => {
-    document.querySelectorAll(".service-window").forEach((item) => {
-      const active = item === button;
-      item.classList.toggle("active", active);
-      item.setAttribute("aria-pressed", String(active));
-    });
-    selectedWindow = button.dataset.window;
+    windowChosen = true;
+    selectWindow(button.dataset.window);
     load().catch(showError);
   });
+});
+
+window.matchMedia("(max-width: 540px)").addEventListener("change", () => {
+  if (pingPayload) renderPing(pingPayload);
 });
 
 [elements.interval, elements.failureSeconds, elements.recoverySeconds].forEach(
@@ -379,6 +534,7 @@ elements.settingsForm.addEventListener("submit", async (event) => {
       interval,
     ),
     dashboard: elements.dashboardMode.value,
+    default_window: elements.defaultWindow.value,
   };
   const payload = {
     ...allSettings,
@@ -403,8 +559,10 @@ elements.settingsForm.addEventListener("submit", async (event) => {
       (item) => item.id === monitorId,
     );
     renderSettings(serviceSettings);
+    selectWindow(serviceSettings.default_window || "7d");
     elements.settingsMessage.dataset.status = "success";
     elements.settingsMessage.textContent = "Saved. The monitor will restart after its current check.";
+    load().catch(showError);
   } catch (error) {
     elements.settingsMessage.dataset.status = "error";
     elements.settingsMessage.textContent = error.message;
@@ -417,5 +575,38 @@ function showError(error) {
   elements.error.textContent = `Service monitor failed: ${error.message}`;
   elements.error.hidden = false;
 }
+
+elements.current.addEventListener("click", async () => {
+  if (checking || !serviceSettings?.enabled) return;
+  checking = true;
+  elements.current.disabled = true;
+  elements.current.setAttribute("aria-busy", "true");
+  elements.checked.textContent = "Checking...";
+  try {
+    manualResult = await api(`/api/v1/services/${encodeURIComponent(monitorId)}/test`, {
+      method: "POST",
+      headers: { "X-Monitor-Action": "manual-test" },
+    });
+    elements.error.hidden = true;
+  } catch (error) {
+    showError(error);
+  } finally {
+    checking = false;
+    elements.current.setAttribute("aria-busy", "false");
+    if (lastSummary) renderSummary(lastSummary);
+  }
+});
+
+setInterval(() => {
+  if (!document.hidden && lastSummary) renderSummary(lastSummary);
+}, 1000);
+
+setInterval(() => {
+  if (!document.hidden && !checking && activeLoads === 0) load().catch(showError);
+}, 5000);
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && !checking && activeLoads === 0) load().catch(showError);
+});
 
 load().catch(showError);

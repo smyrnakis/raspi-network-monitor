@@ -100,6 +100,15 @@ class ServiceMonitorRepository:
             ).fetchone()
             if state is None:
                 raise KeyError(monitor.monitor_id)
+            if monitor.endpoint is not None:
+                self._connection.execute(
+                    """
+                    INSERT INTO service_ping_samples(monitor_id, observed_at_ms, status, latency_ms)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(monitor_id, observed_at_ms) DO NOTHING
+                    """,
+                    (monitor.monitor_id, timestamp, status, latency_ms),
+                )
             stable = state["stable_status"]
             stable_since_ms = state["stable_since_ms"]
             pending_status = state["pending_status"]

@@ -801,6 +801,49 @@ class MonitoringQueries:
             ],
         }
 
+    def service_latency(
+        self, site_id: str, monitor_id: str, start: datetime, end: datetime,
+        bucket_seconds: int = 60,
+    ) -> Dict[str, Any]:
+        _require_utc(start)
+        _require_utc(end)
+        if end <= start:
+            raise ValueError("end must be after start")
+        if not 60 <= bucket_seconds <= 86_400:
+            raise ValueError("bucket_seconds must be between 60 and 86400")
+        if (end - start).total_seconds() / bucket_seconds > 2016:
+            raise ValueError("selected latency window contains too many buckets")
+        if self._connection.execute(
+            "SELECT 1 FROM service_monitors WHERE site_id = ? AND monitor_id = ?",
+            (site_id, monitor_id),
+        ).fetchone() is None:
+            raise KeyError(monitor_id)
+        start_ms, end_ms = _epoch_ms(start), _epoch_ms(end)
+        bucket_ms = bucket_seconds * 1000
+        rows = self._connection.execute(
+            """
+            SELECT ((observed_at_ms - ?) / ?) * ? + ? AS bucket_start_ms,
+                   COUNT(*) AS sample_count, AVG(latency_ms) AS avg_ms,
+                   MIN(latency_ms) AS min_ms, MAX(latency_ms) AS max_ms,
+                   SUM(CASE WHEN latency_ms IS NULL AND status IN ('down', 'degraded')
+                       THEN 1 ELSE 0 END) AS failure_count
+            FROM service_ping_samples
+            WHERE monitor_id = ? AND observed_at_ms >= ? AND observed_at_ms < ?
+            GROUP BY bucket_start_ms ORDER BY bucket_start_ms
+            """,
+            (start_ms, bucket_ms, bucket_ms, start_ms, monitor_id, start_ms, end_ms),
+        ).fetchall()
+        return {
+            "start": _iso(start), "end": _iso(end), "bucket_seconds": bucket_seconds,
+            "points": [
+                {"start": _iso(_datetime(row["bucket_start_ms"])),
+                 "sample_count": row["sample_count"], "avg_ms": row["avg_ms"],
+                 "min_ms": row["min_ms"], "max_ms": row["max_ms"],
+                 "failure_count": row["failure_count"]}
+                for row in rows
+            ],
+        }
+
     def service_incidents(
         self, site_id: str, monitor_id: str, limit: int = 20
     ) -> List[Dict[str, Any]]:

@@ -18,6 +18,7 @@ from home_internet_monitor.monitor.config import ConfigError
 from home_internet_monitor.monitor.rounds import RoundExecutor
 from home_internet_monitor.monitor.routing import LinuxRouteInspector
 from home_internet_monitor.monitor.settings import RuntimeSettingsStore
+from home_internet_monitor.monitor.service_monitors import OpenVpnClientCheck
 from home_internet_monitor.storage import connect_readonly
 
 from .queries import MonitoringQueries, default_window
@@ -276,6 +277,23 @@ def create_app(
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
+    @app.get("/api/v1/services/{monitor_id}/latency")
+    def service_latency(
+        monitor_id: str, start: Optional[datetime] = None, end: Optional[datetime] = None,
+        bucket_seconds: int = Query(60, ge=60, le=86_400),
+        query: MonitoringQueries = Depends(queries),
+    ):
+        effective_end = _utc(end or datetime.now(timezone.utc))
+        effective_start = _utc(start or (effective_end - timedelta(hours=1)))
+        try:
+            return query.service_latency(
+                config.site.site_id, monitor_id, effective_start, effective_end, bucket_seconds,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="service monitor not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
     @app.get("/api/v1/services/{monitor_id}/incidents")
     def service_incidents(
         monitor_id: str,
@@ -284,6 +302,39 @@ def create_app(
     ):
         return {
             "items": query.service_incidents(config.site.site_id, monitor_id, limit)
+        }
+
+    @app.post("/api/v1/services/{monitor_id}/test")
+    async def manual_service_test(
+        monitor_id: str,
+        action: Optional[str] = Header(None, alias="X-Monitor-Action"),
+    ):
+        if action != "manual-test":
+            raise HTTPException(status_code=403, detail="manual test header required")
+        if manual_test_lock.locked():
+            raise HTTPException(status_code=409, detail="a manual test is already running")
+        async with manual_test_lock:
+            active_config = runtime_settings.load_config()
+            monitor = next(
+                (item for item in active_config.service_monitors if item.monitor_id == monitor_id),
+                None,
+            )
+            if monitor is None:
+                raise HTTPException(status_code=404, detail="service monitor not found")
+            if not monitor.enabled:
+                raise HTTPException(status_code=409, detail="service monitor is disabled")
+            try:
+                observation = await asyncio.wait_for(
+                    OpenVpnClientCheck().check(monitor),
+                    timeout=max(5.0, monitor.timeout_seconds + 3.0),
+                )
+            except asyncio.TimeoutError as error:
+                raise HTTPException(status_code=504, detail="service test timed out") from error
+        return {
+            "status": observation.status,
+            "last_checked": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "last_latency_ms": observation.latency_ms,
+            "error_class": observation.error_class,
         }
 
     @app.post("/api/v1/test")

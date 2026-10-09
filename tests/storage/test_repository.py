@@ -127,7 +127,7 @@ class MigrationTests(RepositoryTestCase):
             )
         }
 
-        self.assertEqual([row[0] for row in versions], [1, 2, 3, 4])
+        self.assertEqual([row[0] for row in versions], [1, 2, 3, 4, 5])
         self.assertTrue(
             {
                 "sites",

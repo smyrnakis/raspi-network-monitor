@@ -225,6 +225,14 @@ class MonitoringRepository:
                 (site_id, raw_cutoff_ms),
             ).rowcount
             deleted_incidents = 0
+            self._connection.execute(
+                """
+                DELETE FROM service_ping_samples
+                WHERE monitor_id IN (SELECT monitor_id FROM service_monitors WHERE site_id = ?)
+                  AND observed_at_ms < ?
+                """,
+                (site_id, raw_cutoff_ms),
+            )
             if incident_cutoff_ms is not None:
                 self._connection.execute(
                     """

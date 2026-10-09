@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
     <title>Service monitor</title>
-    <script src="/assets/theme.js?v=0.5.6"></script>
-    <link rel="stylesheet" href="/assets/styles.css?v=0.5.6">
-    <script src="/assets/service.js?v=0.5.6" defer></script>
+    <script src="/assets/theme.js?v=0.5.11"></script>
+    <link rel="stylesheet" href="/assets/styles.css?v=0.5.11">
+    <script src="/assets/service.js?v=0.5.11" defer></script>
   </head>
   <body>
     <header class="topbar">
@@ -27,18 +27,18 @@
           <h1 id="service-name">Loading service…</h1>
           <p id="service-description">Independent from native internet availability</p>
         </div>
-        <div class="service-detail-current" id="service-current" data-status="unknown">
+        <button type="button" class="service-detail-current" id="service-current" data-status="unknown" title="Test this service now" disabled>
           <i aria-hidden="true"></i>
           <span><strong id="service-status">Unknown</strong><small id="service-checked">Not checked yet</small></span>
-        </div>
+        </button>
       </section>
       <section class="card service-detail-card" aria-labelledby="service-timeline-heading">
         <div class="section-header timeline-header">
           <div><h2 id="service-timeline-heading">Status timeline</h2><p class="section-note" id="service-window-description">Showing 7 days. Striped time has no monitoring data.</p></div>
-          <div class="window-controls" role="group" aria-label="Service timeline window">
+          <div class="window-controls" role="group" aria-label="Connection timeline and ping graph window">
+            <button type="button" class="window-button service-window" data-window="1h" aria-pressed="false">1h</button>
             <button type="button" class="window-button service-window" data-window="24h" aria-pressed="false">24h</button>
             <button type="button" class="window-button service-window active" data-window="7d" aria-pressed="true">7d</button>
-            <button type="button" class="window-button service-window" data-window="30d" aria-pressed="false">30d</button>
           </div>
         </div>
         <div class="service-detail-metrics">
@@ -54,6 +54,14 @@
           <span><i data-service-status="degraded"></i>Degraded</span>
           <span><i data-service-status="down"></i>Disconnected</span>
           <span><i data-service-status="unknown"></i>Unknown</span>
+        </div>
+        <div class="service-ping-section">
+          <h3>Ping latency</h3>
+          <div class="latency-chart-wrap service-ping-wrap">
+            <svg id="service-ping-chart" class="latency-chart" role="img" aria-label="Average VPN ping latency; red dots mark failed checks" hidden></svg>
+            <div id="service-ping-tooltip" class="latency-tooltip" role="status" hidden></div>
+            <p id="service-ping-empty" class="empty-state">No ping data in this window.</p>
+          </div>
         </div>
       </section>
       <section class="card" aria-labelledby="service-incidents-heading">
@@ -136,7 +144,7 @@
           <div class="service-settings-group">
             <div>
               <h3>Dashboard</h3>
-              <p>Choose how this service appears on the overview.</p>
+              <p>Choose the overview layout and default graph timespan.</p>
             </div>
             <div class="settings-fields">
               <label>
@@ -145,6 +153,14 @@
                   <option value="compact">Compact card</option>
                   <option value="detailed">Detailed card</option>
                   <option value="hidden">Hide from overview</option>
+                </select>
+              </label>
+              <label>
+                Default timespan
+                <select id="service-default-window" required>
+                  <option value="1h">1 hour</option>
+                  <option value="24h">24 hours</option>
+                  <option value="7d">7 days</option>
                 </select>
               </label>
             </div>

@@ -87,6 +87,7 @@ class ServiceMonitorConfig:
     recovery_threshold: int = 2
     dashboard: str = "compact"
     enabled: bool = True
+    default_window: str = "7d"
 
 
 @dataclass(frozen=True)
@@ -158,6 +159,7 @@ def editable_settings(config: AppConfig) -> dict[str, Any]:
                 "failure_threshold": monitor.failure_threshold,
                 "recovery_threshold": monitor.recovery_threshold,
                 "dashboard": monitor.dashboard,
+                "default_window": monitor.default_window,
                 "enabled": monitor.enabled,
             }
             for monitor in config.service_monitors
@@ -325,6 +327,7 @@ def apply_editable_settings(
                         row, "recovery_threshold", original.recovery_threshold
                     ),
                     dashboard=_string(row, "dashboard", original.dashboard),
+                    default_window=_string(row, "default_window", original.default_window),
                     enabled=_boolean(row, "enabled", original.enabled),
                 )
             )
@@ -480,6 +483,7 @@ def _parse_service_monitor(raw: Any) -> ServiceMonitorConfig:
         failure_threshold=_integer(raw, "failure_threshold", 3),
         recovery_threshold=_integer(raw, "recovery_threshold", 2),
         dashboard=_string(raw, "dashboard", "compact"),
+        default_window=_string(raw, "default_window", "7d"),
         enabled=_boolean(raw, "enabled", True),
     )
 
@@ -586,6 +590,8 @@ def _validate(config: AppConfig) -> None:
             )
         if service.dashboard not in _SERVICE_DASHBOARD_MODES:
             raise ConfigError("service monitor dashboard must be hidden, compact, or detailed")
+        if service.default_window not in _LATENCY_WINDOWS:
+            raise ConfigError("service default window must be 1h, 24h, or 7d")
         if min(
             service.interval_seconds,
             service.timeout_seconds,

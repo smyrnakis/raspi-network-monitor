@@ -5,11 +5,12 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from home_internet_monitor.domain.models import ComponentStatus, RoundEvidence, RoundStatus
 from home_internet_monitor.monitor.models import CompletedRound
 from home_internet_monitor.monitor.config import ServiceMonitorConfig, parse_config
+from home_internet_monitor.monitor.service_monitors import ServiceObservation
 from home_internet_monitor.storage import (
     ServiceMonitorRepository,
     connect_database,
@@ -121,7 +122,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual("home", payload["site"]["site_id"])
         self.assertEqual("monitoring_unknown", payload["stable_status"])
         self.assertTrue(payload["hostname"])
-        self.assertEqual("0.5.6", payload["version"])
+        self.assertEqual("0.5.11", payload["version"])
         self.assertTrue(payload["dashboard"]["hide_short_incidents"])
         self.assertEqual(1, payload["dashboard"]["mtbf_minimum_incident_minutes"])
         self.assertEqual("24h", payload["dashboard"]["default_timeline_window"])
@@ -180,6 +181,16 @@ class AppTests(unittest.TestCase):
         )
         self.assertEqual(200, status)
         self.assertTrue(json.loads(body)["segments"])
+
+        status, _, body = asyncio.run(request(self.app, "/api/v1/services/remote_vpn/latency"))
+        self.assertEqual(200, status)
+        ping = json.loads(body)["points"]
+        self.assertEqual(21.75, ping[0]["avg_ms"])
+        self.assertEqual(1, ping[0]["failure_count"])
+        status, _, _ = asyncio.run(request(self.app, "/api/v1/services/missing/latency"))
+        self.assertEqual(404, status)
+        status, _, _ = asyncio.run(request(self.app, "/api/v1/services/remote_vpn/latency", query))
+        self.assertEqual(400, status)
 
     def test_csv_route_sets_attachment_and_contains_header(self):
         status, headers, body = asyncio.run(
@@ -354,6 +365,53 @@ class AppTests(unittest.TestCase):
         )
         self.assertEqual(403, status)
         self.assertIn("manual test header required", json.loads(body)["detail"])
+
+    def test_manual_service_test_requires_action_header(self):
+        status, _, _ = asyncio.run(
+            request(self.app, "/api/v1/services/remote_vpn/test", method="POST")
+        )
+        self.assertEqual(403, status)
+
+    def test_manual_service_test_returns_result_without_changing_history(self):
+        connection = connect_database(self.path)
+        before = list(connection.iterdump())
+        connection.close()
+        with patch(
+            "home_internet_monitor.api.app.OpenVpnClientCheck.check",
+            new=AsyncMock(return_value=ServiceObservation("up", 42.5)),
+        ) as checker:
+            status, _, body = asyncio.run(request(
+                self.app, "/api/v1/services/remote_vpn/test", method="POST",
+                headers=[(b"x-monitor-action", b"manual-test")],
+            ))
+        self.assertEqual(200, status)
+        payload = json.loads(body)
+        self.assertEqual("up", payload["status"])
+        self.assertEqual(42.5, payload["last_latency_ms"])
+        self.assertTrue(payload["last_checked"].endswith("Z"))
+        checker.assert_awaited_once()
+        self.assertEqual("remote_vpn", checker.call_args.args[0].monitor_id)
+        connection = connect_database(self.path)
+        self.assertEqual(before, list(connection.iterdump()))
+        connection.close()
+
+    def test_manual_service_test_rejects_missing_monitor(self):
+        status, _, _ = asyncio.run(request(
+            self.app, "/api/v1/services/missing/test", method="POST",
+            headers=[(b"x-monitor-action", b"manual-test")],
+        ))
+        self.assertEqual(404, status)
+
+    def test_manual_service_test_reports_timeout(self):
+        with patch(
+            "home_internet_monitor.api.app.OpenVpnClientCheck.check",
+            new=AsyncMock(side_effect=asyncio.TimeoutError),
+        ):
+            status, _, _ = asyncio.run(request(
+                self.app, "/api/v1/services/remote_vpn/test", method="POST",
+                headers=[(b"x-monitor-action", b"manual-test")],
+            ))
+        self.assertEqual(504, status)
 
     def test_manual_test_returns_transient_probe_result(self):
         completed = CompletedRound(

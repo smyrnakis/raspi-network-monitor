@@ -59,6 +59,7 @@ class RuntimeSettingsTests(unittest.TestCase):
         payload["service_monitors"][0]["interval_seconds"] = 30
         payload["service_monitors"][0]["failure_threshold"] = 4
         payload["service_monitors"][0]["dashboard"] = "detailed"
+        payload["service_monitors"][0]["default_window"] = "1h"
 
         saved = self.store.save(payload)
 
@@ -76,6 +77,8 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(30, effective.service_monitors[0].interval_seconds)
         self.assertEqual(4, effective.service_monitors[0].failure_threshold)
         self.assertEqual("detailed", effective.service_monitors[0].dashboard)
+        self.assertEqual("1h", effective.service_monitors[0].default_window)
+        self.assertEqual("1h", RuntimeSettingsStore(base_config(self.directory)).read()["service_monitors"][0]["default_window"])
         self.assertTrue(self.store.consume_restart_request())
         self.assertFalse(self.store.consume_restart_request())
 
@@ -90,6 +93,16 @@ class RuntimeSettingsTests(unittest.TestCase):
             self.store.save(invalid)
 
         self.assertEqual(before, self.store.path.read_text(encoding="utf-8"))
+
+    def test_service_default_window_validation_and_older_settings(self):
+        payload = self.store.read()
+        self.assertEqual("7d", payload["service_monitors"][0]["default_window"])
+        payload["service_monitors"][0].pop("default_window")
+        self.store.save(payload)
+        self.assertEqual("7d", self.store.load_config().service_monitors[0].default_window)
+        payload["service_monitors"][0]["default_window"] = "30d"
+        with self.assertRaisesRegex(ConfigError, "service default window"):
+            self.store.save(payload)
 
     def test_probe_identity_and_required_probe_counts_cannot_be_bypassed(self):
         payload = self.store.read()

@@ -1824,7 +1824,14 @@ a.event-row:focus-visible {
   border: 1px solid var(--line);
   border-radius: 11px;
   background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
+
+.service-detail-current:disabled { cursor: default; }
+.service-detail-current:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
 
 .service-detail-current > i {
   width: 10px;
@@ -1866,6 +1873,13 @@ a.event-row:focus-visible {
   height: 52px;
   gap: 3px;
 }
+
+.service-ping-section { max-width: 760px; margin: 20px auto 0; padding-top: 16px; border-top: 1px solid var(--line); }
+.service-ping-section h3 { margin: 0; font-size: 1rem; }
+.service-ping-wrap { min-height: 130px; }
+.service-ping-wrap .latency-chart { min-height: 120px; }
+.service-ping-wrap .empty-state { min-height: 110px; }
+.service-ping-wrap .latency-chart[hidden] { display: none; }
 
 .service-detail-timeline i { min-width: 3px; border-radius: 4px; background: var(--subtle-text); }
 .service-detail-timeline [data-status="up"], .legend [data-service-status="up"] { background: var(--online); }
@@ -1989,6 +2003,11 @@ a.event-row:focus-visible {
   font-size: 0.75rem;
   font-weight: 700;
   line-height: 1.35;
+}
+
+.service-incident-confirmation {
+  color: var(--muted);
+  font-weight: 500;
 }
 
 .service-settings-card form { margin-top: 8px; }
