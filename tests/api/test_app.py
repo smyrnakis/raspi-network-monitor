@@ -122,7 +122,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual("home", payload["site"]["site_id"])
         self.assertEqual("monitoring_unknown", payload["stable_status"])
         self.assertTrue(payload["hostname"])
-        self.assertEqual("0.5.11", payload["version"])
+        self.assertEqual("0.5.12", payload["version"])
         self.assertTrue(payload["dashboard"]["hide_short_incidents"])
         self.assertEqual(1, payload["dashboard"]["mtbf_minimum_incident_minutes"])
         self.assertEqual("24h", payload["dashboard"]["default_timeline_window"])
