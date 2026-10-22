@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
     <title>Service monitor</title>
-    <script src="/assets/theme.js?v=0.5.12"></script>
-    <link rel="stylesheet" href="/assets/styles.css?v=0.5.12">
-    <script src="/assets/service.js?v=0.5.12" defer></script>
+    <script src="/assets/theme.js?v=0.5.14"></script>
+    <link rel="stylesheet" href="/assets/styles.css?v=0.5.14">
+    <script src="/assets/service.js?v=0.5.14" defer></script>
   </head>
   <body>
     <header class="topbar">
@@ -43,9 +43,9 @@
         </div>
         <div class="service-detail-metrics">
           <article><span>Availability</span><strong id="service-availability">...</strong><small id="service-availability-note">of monitored time</small></article>
-          <article><span>Current state</span><strong id="service-duration">...</strong><small>since last transition</small></article>
+          <article><span>Current state</span><strong id="service-duration">...</strong><small id="service-duration-note">since last restore</small></article>
           <article><span>Last incident</span><strong id="service-last-incident">...</strong><small id="service-last-incident-time">in selected history</small></article>
-          <article><span>Round trip</span><strong id="service-latency">...</strong><small>latest successful check</small></article>
+          <article><span>Last round trip ping</span><strong id="service-latency">...</strong><small id="service-latency-average">Average for window: No data</small></article>
         </div>
         <div class="service-detail-timeline" id="service-detail-timeline" role="img" aria-label="Service status timeline"></div>
         <div class="timeline-axis"><time id="service-timeline-start">...</time><time id="service-timeline-end">...</time></div>
@@ -164,6 +164,16 @@
                 </select>
               </label>
             </div>
+          </div>
+          <div class="service-settings-group">
+            <div><h3>Homepage timeline</h3></div>
+            <label class="dashboard-checkbox">
+              <input id="service-timeline-shading" type="checkbox">
+              <span>
+                <strong>Shade interruptions from light to dark red</strong>
+                <small>Darker blocks mean more time disconnected or degraded. Turn off to show the dominant status in each block.</small>
+              </span>
+            </label>
           </div>
           <div class="settings-actions service-settings-actions">
             <button type="submit" class="primary-button" id="save-service-settings" disabled>Save service settings</button>

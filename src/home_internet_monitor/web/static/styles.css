@@ -1175,36 +1175,32 @@ a.event-row:focus-visible {
 }
 
 .history-event-details {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .history-event-details > div {
-  min-width: 0;
-  padding: 11px;
-  border-radius: 9px;
-  background: var(--surface-soft);
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
 }
 
-.history-event-details span,
-.history-event-details strong,
-.history-event-details code {
-  display: block;
-}
-
-.history-event-details span {
+.history-event-details > div > span {
   color: var(--muted);
-  font-size: 0.7rem;
-  font-weight: 750;
+  font-size: 0.82rem;
 }
 
-.history-event-details strong,
-.history-event-details code {
-  margin-top: 5px;
+.history-event-details strong {
   overflow-wrap: anywhere;
   color: var(--ink);
   font-size: 0.82rem;
+}
+
+.history-event-details .history-verification {
+  color: var(--muted);
+  font-weight: 400;
 }
 
 .incident-explanation {
@@ -1880,6 +1876,14 @@ a.event-row:focus-visible {
 .service-ping-wrap .latency-chart { min-height: 120px; }
 .service-ping-wrap .empty-state { min-height: 110px; }
 .service-ping-wrap .latency-chart[hidden] { display: none; }
+.service-ping-wrap .latency-chart { touch-action: none; }
+.service-ping-wrap .latency-tooltip {
+  position: fixed;
+  left: var(--latency-tooltip-left);
+  top: var(--latency-tooltip-top);
+  transform: none;
+  z-index: 100;
+}
 
 .service-detail-timeline i { min-width: 3px; border-radius: 4px; background: var(--subtle-text); }
 .service-detail-timeline [data-status="up"], .legend [data-service-status="up"] { background: var(--online); }
@@ -2434,10 +2438,6 @@ a.event-row:focus-visible {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .history-event-details {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .service-card {
     grid-template-columns: 1fr 1fr;
   }
@@ -2638,8 +2638,7 @@ a.event-row:focus-visible {
     flex-direction: column;
   }
 
-  .history-filters,
-  .history-event-details {
+  .history-filters {
     grid-template-columns: 1fr;
   }
 

@@ -88,6 +88,7 @@ class ServiceMonitorConfig:
     dashboard: str = "compact"
     enabled: bool = True
     default_window: str = "7d"
+    timeline_shading: bool = True
 
 
 @dataclass(frozen=True)
@@ -160,6 +161,7 @@ def editable_settings(config: AppConfig) -> dict[str, Any]:
                 "recovery_threshold": monitor.recovery_threshold,
                 "dashboard": monitor.dashboard,
                 "default_window": monitor.default_window,
+                "timeline_shading": monitor.timeline_shading,
                 "enabled": monitor.enabled,
             }
             for monitor in config.service_monitors
@@ -328,6 +330,7 @@ def apply_editable_settings(
                     ),
                     dashboard=_string(row, "dashboard", original.dashboard),
                     default_window=_string(row, "default_window", original.default_window),
+                    timeline_shading=_boolean(row, "timeline_shading", original.timeline_shading),
                     enabled=_boolean(row, "enabled", original.enabled),
                 )
             )
@@ -484,6 +487,7 @@ def _parse_service_monitor(raw: Any) -> ServiceMonitorConfig:
         recovery_threshold=_integer(raw, "recovery_threshold", 2),
         dashboard=_string(raw, "dashboard", "compact"),
         default_window=_string(raw, "default_window", "7d"),
+        timeline_shading=_boolean(raw, "timeline_shading", True),
         enabled=_boolean(raw, "enabled", True),
     )
 

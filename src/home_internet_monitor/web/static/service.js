@@ -10,6 +10,7 @@ let loadSequence = 0;
 let activeLoads = 0;
 let pingPayload = null;
 let windowChosen = false;
+let pingTooltipTimer = null;
 
 const elements = {
   error: document.querySelector("#service-error"),
@@ -21,9 +22,11 @@ const elements = {
   availabilityNote: document.querySelector("#service-availability-note"),
   windowDescription: document.querySelector("#service-window-description"),
   duration: document.querySelector("#service-duration"),
+  durationNote: document.querySelector("#service-duration-note"),
   incident: document.querySelector("#service-last-incident"),
   incidentTime: document.querySelector("#service-last-incident-time"),
   latency: document.querySelector("#service-latency"),
+  latencyAverage: document.querySelector("#service-latency-average"),
   timeline: document.querySelector("#service-detail-timeline"),
   pingChart: document.querySelector("#service-ping-chart"),
   pingEmpty: document.querySelector("#service-ping-empty"),
@@ -47,6 +50,7 @@ const elements = {
   clientName: document.querySelector("#service-client-name"),
   dashboardMode: document.querySelector("#service-dashboard-mode"),
   defaultWindow: document.querySelector("#service-default-window"),
+  timelineShading: document.querySelector("#service-timeline-shading"),
 };
 
 async function api(path, options = {}) {
@@ -121,10 +125,17 @@ function renderSummary(item) {
   elements.current.disabled = checking || !serviceSettings?.enabled;
   elements.checked.textContent = checking ? "Checking..." : latest.last_checked ? `Checked ${relativeTime(latest.last_checked)}` : "Not checked yet";
   elements.duration.textContent = item.stable_since ? formatDuration((Date.now() - new Date(item.stable_since).getTime()) / 1000) : "No data";
+  elements.durationNote.textContent = item.status === "up" ? "since last restore"
+    : ["down", "degraded"].includes(item.status) ? "since incident started" : "since status became unknown";
   elements.latency.textContent = latest.last_latency_ms == null ? "No data" : `${Math.round(latest.last_latency_ms)} ms`;
   if (item.last_incident) {
-    elements.incident.textContent = item.last_incident.duration_seconds === null ? "Ongoing" : formatDuration(item.last_incident.duration_seconds);
-    elements.incidentTime.textContent = formatDate(item.last_incident.start, true);
+    elements.incident.textContent = formatDate(item.last_incident.start);
+    const elapsed = item.last_incident.duration_seconds === null
+      ? Math.max(0, (Date.now() - new Date(item.last_incident.start).getTime()) / 1000)
+      : item.last_incident.duration_seconds;
+    const minutes = Math.round(elapsed / 60);
+    const duration = minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+    elements.incidentTime.textContent = `Duration: ${duration}${item.last_incident.duration_seconds === null ? " (ongoing)" : ""}`;
   } else {
     elements.incident.textContent = "None";
     elements.incidentTime.textContent = "No confirmed incidents";
@@ -151,9 +162,7 @@ function renderTimeline(payload) {
   const classified = totals.up + totals.degraded + totals.down;
   const coverage = classified / Math.max(1, end - start);
   elements.availability.textContent = classified ? `${(totals.up / classified * 100).toFixed(2)}%` : "No data";
-  elements.availabilityNote.textContent = classified
-    ? `${(coverage * 100).toFixed(2)}% of selected window monitored`
-    : "No monitored time in selected window";
+  elements.availabilityNote.textContent = `Selected window monitored: ${(coverage * 100).toFixed(2)}%`;
   elements.windowDescription.textContent = `Showing ${windowLabel(selectedWindow)}. Striped time has no monitoring data.`;
   elements.start.textContent = formatDate(payload.start);
   elements.end.textContent = formatDate(payload.end);
@@ -164,6 +173,7 @@ function renderTimeline(payload) {
 }
 
 function renderPing(payload) {
+  elements.latencyAverage.textContent = `Average for window: ${payload.average_ms == null ? "No data" : `${Math.round(payload.average_ms)}ms`}`;
   const chart = elements.pingChart;
   chart.replaceChildren();
   elements.pingTooltip.hidden = true;
@@ -223,6 +233,7 @@ function renderPing(payload) {
   });
   flush();
   const show = event => {
+    clearTimeout(pingTooltipTimer);
     const rect = chart.getBoundingClientRect();
     const x = (event.clientX - rect.left) / rect.width * width;
     const time = start + (x - margin.left) / plotWidth * (end - start);
@@ -237,16 +248,24 @@ function renderPing(payload) {
     elements.pingTooltip.replaceChildren(...lines.map(text => {
       const node = document.createElement("span"); node.textContent = text; return node;
     }));
-    const wrap = chart.parentElement.getBoundingClientRect();
-    elements.pingTooltip.style.setProperty("--latency-tooltip-left", `${event.clientX - wrap.left}px`);
-    elements.pingTooltip.style.setProperty("--latency-tooltip-top", `${Math.max(110, event.clientY - wrap.top)}px`);
     elements.pingTooltip.hidden = false;
+    const tooltip = elements.pingTooltip.getBoundingClientRect();
+    const gap = event.pointerType === "touch" ? 64 : 18;
+    elements.pingTooltip.style.setProperty("--latency-tooltip-left", `${Math.max(8, Math.min(innerWidth - tooltip.width - 8, event.clientX - tooltip.width / 2))}px`);
+    elements.pingTooltip.style.setProperty("--latency-tooltip-top", `${Math.max(8, event.clientY - tooltip.height - gap)}px`);
   };
-  chart.onpointerdown = show;
+  chart.onpointerdown = event => {
+    if (event.pointerType === "touch") chart.setPointerCapture(event.pointerId);
+    show(event);
+  };
   chart.onpointermove = show;
-  chart.onpointerleave = () => { elements.pingTooltip.hidden = true; };
-  chart.onpointercancel = chart.onpointerleave;
-  chart.onpointerup = () => { setTimeout(chart.onpointerleave, 1500); };
+  const hide = () => { clearTimeout(pingTooltipTimer); elements.pingTooltip.hidden = true; };
+  chart.onpointerleave = event => { if (event.pointerType !== "touch") hide(); };
+  chart.onpointercancel = hide;
+  chart.onpointerup = event => {
+    if (chart.hasPointerCapture(event.pointerId)) chart.releasePointerCapture(event.pointerId);
+    pingTooltipTimer = setTimeout(hide, 1500);
+  };
 }
 
 function pingAxisBounds(points) {
@@ -414,6 +433,7 @@ function renderSettings(item) {
   elements.clientName.value = item.client_name || "";
   elements.dashboardMode.value = item.dashboard;
   elements.defaultWindow.value = item.default_window || "7d";
+  elements.timelineShading.checked = item.timeline_shading !== false;
   updateMethodState();
   updateThresholdNotes();
   elements.saveSettings.disabled = false;
@@ -535,6 +555,7 @@ elements.settingsForm.addEventListener("submit", async (event) => {
     ),
     dashboard: elements.dashboardMode.value,
     default_window: elements.defaultWindow.value,
+    timeline_shading: elements.timelineShading.checked,
   };
   const payload = {
     ...allSettings,

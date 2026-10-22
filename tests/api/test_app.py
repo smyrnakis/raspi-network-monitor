@@ -122,7 +122,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual("home", payload["site"]["site_id"])
         self.assertEqual("monitoring_unknown", payload["stable_status"])
         self.assertTrue(payload["hostname"])
-        self.assertEqual("0.5.12", payload["version"])
+        self.assertEqual("0.5.14", payload["version"])
         self.assertTrue(payload["dashboard"]["hide_short_incidents"])
         self.assertEqual(1, payload["dashboard"]["mtbf_minimum_incident_minutes"])
         self.assertEqual("24h", payload["dashboard"]["default_timeline_window"])
@@ -167,10 +167,26 @@ class AppTests(unittest.TestCase):
         self.assertEqual(200, status)
         payload = json.loads(body)
         self.assertEqual("remote_vpn", payload["items"][0]["id"])
+        self.assertTrue(payload["items"][0]["timeline_shading"])
         self.assertEqual("up", payload["items"][0]["status"])
         self.assertEqual("closed", payload["items"][0]["last_incident"]["lifecycle"])
         self.assertIsNotNone(payload["items"][0]["last_incident"]["confirmed_start"])
         self.assertEqual("recovered", payload["items"][0]["last_incident"]["end_reason"])
+
+        _, _, body = asyncio.run(request(self.app, "/api/v1/settings"))
+        settings = json.loads(body)
+        settings["service_monitors"][0]["timeline_shading"] = False
+        status, _, _ = asyncio.run(request(
+            self.app, "/api/v1/settings", method="PUT",
+            headers=[(b"x-monitor-action", b"settings-update")],
+            body=json.dumps(settings).encode(),
+        ))
+        self.assertEqual(200, status)
+        for endpoint in ("/api/v1/services", "/api/v1/services/remote_vpn"):
+            _, _, body = asyncio.run(request(self.app, endpoint))
+            result = json.loads(body)
+            item = result["items"][0] if "items" in result else result
+            self.assertFalse(item["timeline_shading"])
 
         query = (
             b"start=2026-01-01T00%3A00%3A00%2B00%3A00&"
@@ -274,7 +290,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual(200, status)
         self.assertIn(b"javascript", headers[b"content-type"])
         self.assertIn(b"fillTimelineGaps", body)
-        self.assertIn(b"of selected window monitored", body)
+        self.assertIn(b"Selected window monitored:", body)
         self.assertIn(b"incidentCard", body)
         self.assertIn(b"detectionDescription", body)
         self.assertIn(b"thresholdForSeconds", body)

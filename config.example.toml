@@ -50,6 +50,7 @@ default_latency_window = "1h"
 # failure_threshold = 3
 # recovery_threshold = 2
 # dashboard = "compact"
+# timeline_shading = true  # Shade any disconnected/degraded time red on homepage.
 #
 # For server-session evidence as well as tunnel reachability, also configure:
 # status_file = "/run/openvpn-server/status-server.log"

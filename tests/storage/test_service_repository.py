@@ -87,6 +87,9 @@ class ServiceMonitorRepositoryTests(unittest.TestCase):
         queries = MonitoringQueries(self.connection)
         payload = queries.service_latency("home", "remote_vpn", self.start, self.start + timedelta(minutes=4))
         points = payload["points"]
+        self.assertAlmostEqual(80 / 3, payload["average_ms"])
+        empty = queries.service_latency("home", "remote_vpn", self.start + timedelta(days=1), self.start + timedelta(days=1, hours=1))
+        self.assertIsNone(empty["average_ms"])
         self.assertEqual(3, len(points))
         self.assertEqual((20, 10, 30, 1, 3), (points[0]["avg_ms"], points[0]["min_ms"], points[0]["max_ms"], points[0]["failure_count"], points[0]["sample_count"]))
         self.assertIsNone(points[1]["avg_ms"])

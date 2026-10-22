@@ -242,11 +242,14 @@ def create_app(
 
     @app.get("/api/v1/services")
     def services(query: MonitoringQueries = Depends(queries)):
-        return {
-            "items": query.service_summaries(
-                config.site.site_id, datetime.now(timezone.utc)
-            )
+        items = query.service_summaries(config.site.site_id, datetime.now(timezone.utc))
+        monitors = {
+            item.monitor_id: item for item in runtime_settings.load_config().service_monitors
         }
+        for item in items:
+            monitor = monitors.get(item["id"])
+            item["timeline_shading"] = monitor.timeline_shading if monitor else True
+        return {"items": items}
 
     @app.get("/api/v1/services/{monitor_id}")
     def service_summary(
@@ -257,6 +260,11 @@ def create_app(
         )
         if payload is None:
             raise HTTPException(status_code=404, detail="service monitor not found")
+        monitor = next(
+            (item for item in runtime_settings.load_config().service_monitors
+             if item.monitor_id == monitor_id), None,
+        )
+        payload["timeline_shading"] = monitor.timeline_shading if monitor else True
         return payload
 
     @app.get("/api/v1/services/{monitor_id}/timeline")

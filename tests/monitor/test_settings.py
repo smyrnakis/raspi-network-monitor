@@ -52,6 +52,7 @@ class RuntimeSettingsTests(unittest.TestCase):
         payload["probes"][1]["endpoint"] = "9.9.9.9"
         payload["retention"]["raw_samples_days"] = 7
         payload["retention"]["incidents_days"] = None
+        payload["service_monitors"][0]["timeline_shading"] = False
         payload["dashboard"]["hide_short_incidents"] = False
         payload["dashboard"]["mtbf_minimum_incident_minutes"] = 5
         payload["dashboard"]["default_timeline_window"] = "7d"
@@ -70,6 +71,8 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual("9.9.9.9", effective.probes[1].endpoint)
         self.assertEqual(7, effective.retention.raw_samples_days)
         self.assertIsNone(effective.retention.incidents_days)
+        self.assertFalse(effective.service_monitors[0].timeline_shading)
+        self.assertFalse(RuntimeSettingsStore(base_config(self.directory)).read()["service_monitors"][0]["timeline_shading"])
         self.assertFalse(effective.dashboard.hide_short_incidents)
         self.assertEqual(5, effective.dashboard.mtbf_minimum_incident_minutes)
         self.assertEqual("7d", effective.dashboard.default_timeline_window)

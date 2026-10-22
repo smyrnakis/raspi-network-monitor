@@ -247,7 +247,7 @@ function serviceCard(item, timeline) {
   track.setAttribute("role", "img");
   track.setAttribute("aria-label", "Service status during the last seven days");
   track.setAttribute("title", "Striped sections have no monitoring data");
-  renderServiceMiniTimeline(track, timeline.segments || [], startOfTimeline(timeline), endOfTimeline(timeline));
+  renderServiceMiniTimeline(track, timeline.segments || [], startOfTimeline(timeline), endOfTimeline(timeline), item.timeline_shading !== false);
   const timelineAxis = document.createElement("div");
   timelineAxis.className = "service-mini-timeline-axis";
   timelineAxis.append(textNode("", "7 days ago"), textNode("", "Now"));
@@ -255,7 +255,7 @@ function serviceCard(item, timeline) {
   return link;
 }
 
-function renderServiceMiniTimeline(track, segments, start, end) {
+function renderServiceMiniTimeline(track, segments, start, end, shading = true) {
   const count = 28;
   const duration = Math.max(1, end - start);
   for (let index = 0; index < count; index += 1) {
@@ -272,6 +272,22 @@ function renderServiceMiniTimeline(track, segments, start, end) {
       : "unknown";
     const node = document.createElement("i");
     node.dataset.status = status;
+    const impairedMs = overlaps.down + overlaps.degraded;
+    const classifiedMs = overlaps.up + impairedMs;
+    const unknownMs = Math.max(0, bucketEnd - bucketStart - classifiedMs);
+    const description = `${formatDate(new Date(bucketStart).toISOString())} to ` +
+      `${formatDate(new Date(bucketEnd).toISOString())}. ` +
+      `Disconnected or degraded: ${formatDuration(impairedMs / 1000)}. ` +
+      `Unknown: ${formatDuration(unknownMs / 1000)}.`;
+    node.title = description;
+    node.setAttribute("aria-label", description);
+    if (shading && classifiedMs > 0) {
+      node.style.background = impairmentColor(impairedMs / (bucketEnd - bucketStart));
+      if (unknownMs > 0) {
+        const opacity = Math.min(0.9, unknownMs / (bucketEnd - bucketStart) * 1.5);
+        node.style.backgroundImage = `repeating-linear-gradient(135deg, transparent 0 2px, rgb(128 128 128 / ${opacity}) 2px 4px)`;
+      }
+    }
     track.appendChild(node);
   }
 }

@@ -823,7 +823,8 @@ class MonitoringQueries:
         rows = self._connection.execute(
             """
             SELECT ((observed_at_ms - ?) / ?) * ? + ? AS bucket_start_ms,
-                   COUNT(*) AS sample_count, AVG(latency_ms) AS avg_ms,
+                   COUNT(*) AS sample_count, COUNT(latency_ms) AS latency_count,
+                   AVG(latency_ms) AS avg_ms,
                    MIN(latency_ms) AS min_ms, MAX(latency_ms) AS max_ms,
                    SUM(CASE WHEN latency_ms IS NULL AND status IN ('down', 'degraded')
                        THEN 1 ELSE 0 END) AS failure_count
@@ -835,6 +836,11 @@ class MonitoringQueries:
         ).fetchall()
         return {
             "start": _iso(start), "end": _iso(end), "bucket_seconds": bucket_seconds,
+            "average_ms": (
+                sum(row["avg_ms"] * row["latency_count"] for row in rows if row["avg_ms"] is not None)
+                / sum(row["latency_count"] for row in rows)
+                if any(row["latency_count"] for row in rows) else None
+            ),
             "points": [
                 {"start": _iso(_datetime(row["bucket_start_ms"])),
                  "sample_count": row["sample_count"], "avg_ms": row["avg_ms"],

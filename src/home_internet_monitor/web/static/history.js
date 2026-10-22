@@ -175,11 +175,14 @@ function historyEvent(item, focused) {
   const summaryMain = document.createElement("span");
   summaryMain.className = "history-event-summary";
   const title = document.createElement("strong");
-  title.textContent = item.event_type === "incident" ? "Incident" : "Monitoring gap";
+  title.textContent = item.event_type === "incident"
+    ? label(item.category) : `Monitoring gap: ${label(item.category)}`;
   const pill = document.createElement("span");
   pill.className = "status-pill";
-  pill.dataset.status = item.event_type === "gap" ? "monitoring_unknown" : item.category;
-  pill.textContent = label(item.category);
+  const recovered = item.event_type === "incident" && item.end_reason === "recovered";
+  pill.dataset.status = recovered ? "online" : "monitoring_unknown";
+  pill.textContent = !item.end ? "Ongoing" : recovered ? "Resolved"
+    : item.event_type === "incident" ? "Recovery unverified" : "Closed";
   const time = document.createElement("span");
   time.className = "history-event-time";
   time.textContent = formatDate(item.start);
@@ -193,28 +196,20 @@ function historyEvent(item, focused) {
 
   const body = document.createElement("div");
   body.className = "history-event-details";
-  appendDetail(body, "Event type", item.event_type === "incident" ? "Incident" : "Monitoring gap");
-  appendDetail(
-    body,
-    item.event_type === "incident" ? "Status" : "Reason",
-    item.event_type === "incident"
-      ? (item.categories || [item.category]).map(label).join(" → ")
-      : label(item.category),
-  );
-  appendDetail(body, "State", label(item.state));
-  appendDetail(body, "Started", formatDate(item.start, true));
-  appendDetail(body, "Ended", item.end ? formatDate(item.end, true) : "Still open");
-  appendDetail(body, "Duration", item.end ? formatDuration(item.duration_seconds) : "Ongoing");
-  if (item.event_type === "incident") {
-    appendDetail(body, "Confirmed start", formatOptionalDate(item.confirmed_start));
-    appendDetail(body, "Confirmed end", formatOptionalDate(item.confirmed_end));
-    appendDetail(body, "End reason", item.end_reason ? label(item.end_reason) : "Not available");
-  }
-  appendDetail(body, "Event ID", item.event_id, true);
+  appendTiming(body, "Started", item.start, item.confirmed_start, item.event_type === "incident");
+  appendTiming(body, "Finished", item.end, item.confirmed_end, item.event_type === "incident");
   const content = document.createElement("div");
   content.className = "history-event-content";
   content.append(body);
   if (item.event_type === "incident") {
+    if (item.end && item.end_reason !== "recovered") {
+      const ending = document.createElement("p");
+      ending.className = "incident-explanation";
+      ending.textContent = item.end_reason === "category_transition"
+        ? "The incident classification changed."
+        : "Monitoring ended before recovery could be verified.";
+      content.append(ending);
+    }
     const explanation = document.createElement("p");
     explanation.className = "incident-explanation";
     const continuity = item.phase_count > 1
@@ -226,6 +221,33 @@ function historyEvent(item, focused) {
   }
   details.append(summary, content);
   return details;
+}
+
+function appendTiming(container, name, observed, confirmed, verify) {
+  const row = document.createElement("div");
+  const term = document.createElement("span");
+  term.textContent = name;
+  const value = document.createElement("strong");
+  value.append(observed ? formatDate(observed, true) : "Ongoing");
+  if (verify && observed) {
+    const note = document.createElement("span");
+    note.className = "history-verification";
+    note.textContent = confirmed ? ` (verified ${verificationTime(observed, confirmed)})`
+      : name === "Finished" ? " (recovery unverified)" : " (verification unavailable)";
+    value.append(note);
+  }
+  row.append(term, value);
+  container.append(row);
+}
+
+function verificationTime(observed, confirmed) {
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone: state.timezone, dateStyle: "short" });
+  if (day.format(new Date(observed)) !== day.format(new Date(confirmed))) {
+    return formatDate(confirmed, true);
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    timeZone: state.timezone, timeStyle: "medium",
+  }).format(new Date(confirmed));
 }
 
 function incidentPhases(phases) {
@@ -265,16 +287,6 @@ function incidentExplanation(failedTests) {
   return `Failed when confirmed: ${tests.join(", ")}.`;
 }
 
-function appendDetail(container, name, value, code = false) {
-  const item = document.createElement("div");
-  const term = document.createElement("span");
-  term.textContent = name;
-  const content = document.createElement(code ? "code" : "strong");
-  content.textContent = value;
-  item.append(term, content);
-  container.append(item);
-}
-
 function renderPagination(payload) {
   const first = payload.total ? payload.offset + 1 : 0;
   const last = Math.min(payload.offset + payload.items.length, payload.total);
@@ -309,10 +321,6 @@ function formatDate(value, includeSeconds = false) {
     dateStyle: "medium",
     timeStyle: includeSeconds ? "medium" : "short",
   }).format(new Date(value));
-}
-
-function formatOptionalDate(value) {
-  return value ? formatDate(value, true) : "Not available";
 }
 
 function formatDuration(seconds) {

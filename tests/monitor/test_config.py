@@ -50,6 +50,19 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ConfigError, "at least 2 enabled external_ip"):
             parse_config(raw)
 
+    def test_service_timeline_shading_requires_boolean(self):
+        raw = valid_config()
+        raw["service_monitors"] = [{
+            "id": "vpn", "label": "VPN", "kind": "openvpn_client",
+            "endpoint": "10.8.0.2",
+        }]
+        self.assertTrue(parse_config(raw).service_monitors[0].timeline_shading)
+        raw["service_monitors"][0]["timeline_shading"] = False
+        self.assertFalse(parse_config(raw).service_monitors[0].timeline_shading)
+        raw["service_monitors"][0]["timeline_shading"] = "false"
+        with self.assertRaises(ConfigError):
+            parse_config(raw)
+
     def test_accepts_private_and_wildcard_dashboard_bindings(self):
         raw = valid_config()
         raw["web"] = {"host": "0.0.0.0"}
